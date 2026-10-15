@@ -1,0 +1,153 @@
+/* ---------- rendering ---------- */
+import {$, NS, PX, S, colour, kid, kids, readableText, stage, svgEl} from './core.js';
+import {cellV, is1D, num, numEl, rowV, shapeCtx, shapeText} from './visio-package.js';
+import {ap, buildPaths, localMatrix, mul} from './geometry.js';
+import {HIT_PAD_PX, HIT_TOL_PX, syncSelection} from './selection.js';
+import {commitText} from './text-editor.js';
+import {drawHover} from './pointer.js';
+import {updateProps} from './properties.js';
+import {drawMarker, markerOf} from './flow/model.js';
+import {addPage} from './visio-io.js';
+import {refreshEditor} from './text-pane.js';
+
+export const pageCtx=()=>S.pages[S.pi];
+function dash(lp,lw){ const w=Math.max(lw,1); if(lp<=1) return null; if(lp===2) return `${w*4} ${w*3}`; if(lp===3) return `${w} ${w*2.5}`; return `${w*6} ${w*3} ${w} ${w*3}`; }
+function arrowHead(from,tip,sz,col){
+  const dx=tip[0]-from[0], dy=tip[1]-from[1], L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L;
+  const bx=tip[0]-ux*sz, by=tip[1]-uy*sz, w=sz*0.42;
+  return svgEl('path',{d:`M${tip[0]} ${tip[1]}L${bx-uy*w} ${by+ux*w}L${bx+uy*w} ${by-ux*w}Z`,fill:col,stroke:'none'});
+}
+function wrap(t,maxW,fs){
+  const maxC=Math.max(4,Math.floor(maxW/(fs*0.5))), out=[];
+  for(const para of t.split('\n')){
+    let line='';
+    for(const w of para.split(/\s+/)){ if(!w) continue;
+      if(!line) line=w; else if((line+' '+w).length<=maxC) line+=' '+w; else { out.push(line); line=w; }
+      while(line.length>maxC){ out.push(line.slice(0,maxC)); line=line.slice(maxC); } }
+    out.push(line);
+  }
+  return out;
+}
+function drawShape(el,parentM,inheritMid,g){
+  const sh=shapeCtx(el,inheritMid), id=el.getAttribute('ID');
+  const W=num(sh,'Width',0), H=num(sh,'Height',0), m=mul(parentM,localMatrix(sh)), oneD=is1D(sh);
+  const lp=num(sh,'LinePattern',1), fp=num(sh,'FillPattern',1);
+  const lc=colour(cellV(sh,'LineColor',null),'#000000'), fc=colour(cellV(sh,'FillForegnd',null),'#FFFFFF');
+  const lw=Math.max(num(sh,'LineWeight',0.01)*PX,0.6);
+  const corners=[[0,0],[W,0],[W,H],[0,H]].map(q=>ap(m,q[0],q[1]));
+  if(!oneD) g.appendChild(svgEl('path',{d:'M'+corners.map(q=>q.join(' ')).join('L')+'Z',fill:'transparent',stroke:'transparent',
+    'stroke-width':HIT_PAD_PX*2,'vector-effect':'non-scaling-stroke'}));
+  const all=[], polys=[], open=[]; let hit='';
+  for(const p of buildPaths(sh,W,H)){
+    let df='', ds='';
+    for(const sub of p.subs){
+      if(sub.pts.length<2) continue;
+      const sp=sub.pts.map(q=>ap(m,q[0],q[1])); all.push(...sp);
+      const d='M'+sp.map(q=>q[0].toFixed(2)+' '+q[1].toFixed(2)).join('L');
+      const f=sub.pts[0], l=sub.pts[sub.pts.length-1];
+      if(sub.pts.length>2&&Math.hypot(f[0]-l[0],f[1]-l[1])<1e-6){ df+=d+'Z'; ds+=d+'Z'; polys.push(sp); }
+      else { ds+=d; open.push(sp); }
+    }
+    hit+=ds;
+    if(df&&p.fill&&fp>0&&!oneD) g.appendChild(svgEl('path',{d:df,fill:fc,'fill-rule':'evenodd',stroke:'none'}));
+    if(ds&&p.line&&lp>0) g.appendChild(svgEl('path',{d:ds,fill:'none',stroke:lc,'stroke-width':lw,'stroke-dasharray':dash(lp,lw),'stroke-linejoin':'round','stroke-linecap':'round'}));
+  }
+  if(oneD&&!all.length){
+    const b=ap(parentM,num(sh,'BeginX',0),num(sh,'BeginY',0)), e=ap(parentM,num(sh,'EndX',0),num(sh,'EndY',0));
+    if(lp>0) g.appendChild(svgEl('path',{d:`M${b[0]} ${b[1]}L${e[0]} ${e[1]}`,stroke:lc,'stroke-width':lw,fill:'none'}));
+    open.push([b,e]); all.push(b,e); hit+=`M${b[0]} ${b[1]}L${e[0]} ${e[1]}`;
+  }
+  if(oneD&&hit) g.insertBefore(svgEl('path',{d:hit,fill:'none',stroke:'transparent','stroke-width':HIT_TOL_PX*2+2,'vector-effect':'non-scaling-stroke'}),g.firstChild);
+  if(oneD) S.lines[id]=open;   // kept for hit testing and hover
+  if(lp>0&&open.length){
+    const sz=Math.max(8,lw*4.5), me=markerOf(el,sh,'End'), ms=markerOf(el,sh,'Begin');
+    if(me!=='none'){ const s=open[open.length-1]; drawMarker(g,s[s.length-2],s[s.length-1],me,sz,lc); }
+    if(ms!=='none'){ const s=open[0]; drawMarker(g,s[1],s[0],ms,sz,lc); }
+  }
+  const pts=oneD?all:all.concat(corners);
+  if(pts.length){
+    const xs=pts.map(q=>q[0]), ys=pts.map(q=>q[1]);
+    S.boxes[id]={x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys)};
+  }
+  if(polys.length&&el.getAttribute('Type')!=='Group') S.polys[id]=polys;
+
+  if(el.getAttribute('Type')==='Group') for(const c of kids(kid(el,'Shapes'),'Shape')) drawShape(c,m,sh.mid,g);
+
+  const txt=num(sh,'HideText',0)?'':shapeText(sh);
+  if(txt.trim()){
+    const own=n=>{ const v=numEl(el,n,NaN); return isFinite(v)?v:null; };
+    const tw=own('TxtWidth')??W, th=own('TxtHeight')??H;
+    const cx=(own('TxtPinX')??W/2)-(own('TxtLocPinX')??tw/2)+tw/2, cy=(own('TxtPinY')??H/2)-(own('TxtLocPinY')??th/2)+th/2;
+    const c=ap(m,cx,cy), scale=Math.hypot(m[0],m[1]);
+    const size=parseFloat(rowV(sh,'Character','0','Size')), fs=Math.max((isFinite(size)?size:0.1389)*PX,4);
+    const filled=fp>0&&!oneD&&polys.length>0;
+    const col=readableText(colour(rowV(sh,'Character','0','Color'),'#000000'),filled?fc:'#FFFFFF');
+    const style=parseInt(rowV(sh,'Character','0','Style'),10)||0;   // bit flags: 1 bold, 2 italic, 4 underline
+    let wpx=Math.abs(tw)*scale-8; if(oneD||wpx<40) wpx=Math.max(wpx,160);
+    const lines=wrap(txt,wpx,fs), lh=fs*1.2;
+    const ha=oneD?1:parseInt(rowV(sh,'Paragraph','0','HorzAlign'),10);   // 0 left, 1 centre, 2 right
+    const anchor=ha===0?'start':ha===2?'end':'middle', half=Math.max(Math.abs(tw)*scale/2-4,0);
+    const tx=anchor==='start'?c[0]-half:anchor==='end'?c[0]+half:c[0];
+    const t=svgEl('text',{x:tx,y:c[1],'font-size':fs,'text-anchor':anchor,fill:col,'font-family':'Calibri, "Segoe UI", Arial, sans-serif',
+      'font-weight':style&1?'bold':null,'font-style':style&2?'italic':null,'text-decoration':style&4?'underline':null});
+    if(oneD) t.setAttribute('style','paint-order:stroke;stroke:#FFFFFF;stroke-width:4px;stroke-linejoin:round');
+    lines.forEach((ln,i)=>{ const ts=svgEl('tspan',{x:tx,dy:i===0?(-(lines.length-1)*lh/2+fs*0.35):lh}); ts.textContent=ln; t.appendChild(ts); });
+    g.appendChild(t);
+  }
+}
+export function render(){
+  const pg=pageCtx(); if(!pg) return;
+  const pw=pg.w*PX, ph=pg.h*PX;
+  for(const r of [$('paper'),$('gridRect')]){ r.setAttribute('width',pw); r.setAttribute('height',ph); }
+  const layer=$('layer'); layer.replaceChildren();
+  S.boxes={}; S.polys={}; S.elById={}; S.lines={};
+  for(const s of pg.doc.getElementsByTagNameNS(NS,'Shape')) S.elById[s.getAttribute('ID')]=s;
+  const base=[PX,0,0,-PX,0,ph];
+  for(const el of kids(kid(pg.doc.documentElement,'Shapes'),'Shape')){
+    const g=svgEl('g',{'data-id':el.getAttribute('ID')}); layer.appendChild(g);
+    try{ drawShape(el,base,null,g); }catch(err){ console.warn('Could not draw shape',el.getAttribute('ID'),err); }
+  }
+  syncSelection(); if(S.hover&&!S.elById[S.hover]) S.hover=null; drawHover();
+  drawOverlay(); updateProps(); updateTitle();
+}
+export function canResize(el){ const sh=shapeCtx(el,null); return !is1D(sh)&&el.getAttribute('Type')!=='Group'&&Math.abs(num(sh,'Angle',0))<1e-6; }
+export function drawOverlay(){
+  const ov=$('overlay'); ov.replaceChildren();
+  for(const id of S.selection){ const b=S.boxes[id]; if(!b) continue;
+    ov.appendChild(svgEl('rect',{x:b.x0,y:b.y0,width:Math.max(b.x1-b.x0,0.5),height:Math.max(b.y1-b.y0,0.5),class:id===S.sel?'selbox':'selbox extra'})); }
+  if(S.selection.size!==1||!S.boxes[S.sel]) return;   // handles only make sense for one object
+  const b=S.boxes[S.sel], el=S.elById[S.sel], sh=shapeCtx(el,null), hs=10/S.zoom, pg=pageCtx();
+  if(is1D(sh)){
+    for(const [h,X,Y] of [['begin',num(sh,'BeginX',0),num(sh,'BeginY',0)],['end',num(sh,'EndX',0),num(sh,'EndY',0)]])
+      ov.appendChild(svgEl('circle',{cx:X*PX,cy:(pg.h-Y)*PX,r:hs*0.65,class:'handle','data-handle':h}));
+  } else if(canResize(el)){
+    for(const [h,x,y] of [['nw',b.x0,b.y0],['ne',b.x1,b.y0],['sw',b.x0,b.y1],['se',b.x1,b.y1]])
+      ov.appendChild(svgEl('rect',{x:x-hs/2,y:y-hs/2,width:hs,height:hs,class:'handle','data-handle':h}));
+  }
+}
+export function applyView(){
+  $('view').setAttribute('transform',`translate(${S.panX} ${S.panY}) scale(${S.zoom})`);
+  $('zoomLbl').textContent=Math.round(S.zoom*100)+'%';
+  drawOverlay();
+}
+export function fit(){
+  const pg=pageCtx(); if(!pg) return; const r=stage.getBoundingClientRect();
+  const pw=pg.w*PX, ph=pg.h*PX, z=Math.max(0.05,Math.min((r.width-48)/pw,(r.height-48)/ph,4));
+  S.zoom=z; S.panX=(r.width-pw*z)/2; S.panY=(r.height-ph*z)/2; applyView();
+}
+export function zoomAt(f,cx,cy){
+  if(S.editing) commitText();
+  const nz=Math.min(8,Math.max(0.05,S.zoom*f));
+  S.panX=cx-(cx-S.panX)*nz/S.zoom; S.panY=cy-(cy-S.panY)*nz/S.zoom; S.zoom=nz; applyView();
+}
+export function renderTabs(){
+  const t=$('tabs'); t.replaceChildren();
+  S.pages.forEach((p,i)=>{
+    const b=document.createElement('button'); b.textContent=p.name+(p.bg?' (background)':'');
+    b.setAttribute('aria-selected',String(i===S.pi));
+    b.onclick=()=>{ if(S.editing) commitText(); S.pi=i; S.sel=null; renderTabs(); render(); fit(); refreshEditor(); };
+    t.appendChild(b);
+  });
+  const add=document.createElement('button'); add.textContent='+'; add.title='Add a page'; add.setAttribute('aria-label','Add a page'); add.onclick=addPage; t.appendChild(add);
+}
+export function updateTitle(){ $('fileName').textContent=S.name+(S.dirty?' (unsaved changes)':''); document.title=(S.dirty?'* ':'')+S.name+' | Flow editor'; }

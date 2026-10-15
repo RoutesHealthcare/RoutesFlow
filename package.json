@@ -1,0 +1,13 @@
+{
+  "name": "routesflow",
+  "private": true,
+  "description": "Flow editor: browser-based diagram editor with a .flow text format and Visio import/export",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "node build.mjs --serve"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.2"
+  }
+}
