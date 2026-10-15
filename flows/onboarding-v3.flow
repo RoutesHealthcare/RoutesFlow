@@ -1,0 +1,163 @@
+flow 1
+
+# Onboarding v3: the v2 process with the Fountain approval screens (the UI layer) built in.
+# Built from onboarding - v2.vsdx and "Fountain onboarding approval – wireframe" (approval queue, applicant pages).
+# Where v2 and the wireframe do not say how steps connect, the link is inferred and marked "Inferred" in a comment.
+
+page "Onboarding v3" size 841x594 direction LR
+
+h_intake: text "1 · Fountain intake" @ 20,16 110x10 [text=#FA4616 size=14]
+h_ui: text "2 · Approval UI layer (new in v3)" @ 148,16 180x10 [text=#FA4616 size=14]
+h_create: text "3 · Account creation" @ 404,16 120x10 [text=#FA4616 size=14]
+h_office: text "4 · Office staff after account creation" @ 596,16 150x10 [text=#FA4616 size=14]
+h_care: text "5 · Care staff after account creation" @ 212,152 150x10 [text=#FA4616 size=14]
+applicant: terminator "Applicant progresses to onboard in Fountain" @ 20,50 40x20 [size=9]
+staging: database "Data staging table" @ 84,50 40x20 [size=9]
+update_api: subprocess "Update Fountain API" @ 84,106 40x20 [size=9]
+run_checks: process "Run checks against Fountain data (fields each system needs)" @ 148,50 40x20 [size=9]
+queue: browser "Approval queue" @ 212,50 40x20 [stroke=#FA4616 weight=1.5 size=9]
+applicant_page: browser "Applicant page (office staff or care worker)" @ 276,50 40x20 [stroke=#FA4616 weight=1.5 size=9]
+checks_pass: decision "Checks pass for this system?" @ 340,50 40x24 [size=9]
+fix_fountain: manualInput "Correct the field in Fountain" @ 340,106 40x20 [size=9]
+recheck: button "Re-check from Fountain" @ 276,106 40x14 [stroke=#FA4616 weight=1.5 size=9]
+audit: document "Activity and audit log" @ 212,106 40x20 [stroke=#FA4616 weight=1.5 size=9]
+create: button "Create in <system>" @ 404,50 40x14 [stroke=#FA4616 weight=1.5 size=9]
+id_badge: process "ID badge requested" @ 404,106 40x20 [size=9]
+lumis: process "Create in Lumis (all staff)" @ 468,50 40x20 [size=9]
+lumis_id: text "LumisID – dbo.LMS_Users" @ 532,50 40x10 [size=9]
+staff_group: decision "Staff group?" @ 468,106 40x24 [size=9]
+selecthr: process "Create in SelectHR (office staff)" @ 532,106 40x20 [size=9]
+exchange: process "MS Exchange / 365" @ 596,106 40x20 [size=9]
+is_temp: decision "Is temp?" @ 660,106 40x24 [size=9]
+evo: subprocess "Access EVO profile" @ 660,154 40x20 [size=9]
+pp_acp: process "PP/ACP permissions" @ 660,194 40x20 [size=9]
+pp_modules: process "Assign PP modules and functions, branch view" @ 660,234 40x20 [size=9]
+acp_profile: process "Assign ACP profile, branch, groups etc" @ 660,274 40x20 [size=9]
+role_products: decision "Role-related products?" @ 596,274 40x24 [size=9]
+lm_note: text "Line manager decides PowerBI, Claude etc" @ 596,306 40x10 [size=8]
+temp_perm: decision "If temp, made permanent?" @ 660,322 40x24 [size=9]
+deactivate: process "Deactivate temp access profiles" @ 596,362 40x20 [size=9]
+dse: process "Create DSE Portal user (office staff)" @ 532,154 40x20 [size=9]
+dse_assign: process "Assign manager, induction template, DSE assessment and branch" @ 596,154 40x20 [size=9]
+admin_needed: decision "Admin Portal access needed?" @ 532,194 40x24 [size=9]
+admin: process "Create Admin Portal user (hub staff, manager, trainer or quote creator)" @ 532,234 40x20 [size=9]
+admin_perms: process "Assign Admin Portal branch, role and permissions" @ 532,274 40x20 [size=9]
+is_supervisory: decision "Is supervisory?" @ 532,322 40x24 [size=9]
+staff_to_mgr: process "Assign staff to manager profile" @ 468,362 40x20 [size=9]
+pp: process "Create in People Planner (rostered care staff)" @ 340,186 40x20 [size=9]
+pp_alert: process "Alert email: create blocked, reason in Notes" @ 276,186 40x20 [size=9]
+onboarding_tasks: process "Onboarding tasks" @ 340,226 40x20 [size=9]
+pp_portal: subprocess "PP Employee Portal" @ 340,266 40x20 [size=9]
+is_driver: decision "Is driver?" @ 340,306 40x24 [size=9]
+mileage: subprocess "Driver Mileage Portal" @ 276,306 40x20 [size=9]
+acp_integration: subprocess "ACP profile by integration" @ 340,346 40x20 [size=9]
+device: process "Device registration" @ 340,386 40x20 [size=9]
+end: terminator "End" @ 468,406 40x14 [size=9]
+key "What the lines mean" @ 20,420
+
+applicant -> staging [route=elbow]
+staging -> update_api [route=elbow]
+staging -> run_checks [route=elbow]
+run_checks -> queue [route=elbow]
+queue -> applicant_page [route=elbow] : "Review"
+applicant_page -> checks_pass [route=elbow]
+checks_pass -> create [route=elbow] : "Yes"
+checks_pass -alt-> fix_fountain [route=elbow] : "No"
+fix_fountain -alt-> recheck [route=elbow]
+recheck -alt-> run_checks [route=elbow]
+applicant_page -data-> audit [route=elbow]
+create -data-> audit [route=elbow] : "Every create and check is logged"
+create -> lumis [route=elbow]
+lumis -data-> lumis_id [route=elbow]
+lumis -data-> staging [route=elbow] : "LumisID written back"
+create -> id_badge [route=elbow]   # As v2: approval leads to an ID badge request
+create -> staff_group [route=elbow]   # The approval screen shows only the systems the staff group needs
+staff_group -> selecthr [route=elbow] : "Office"
+staff_group -> pp [route=elbow] : "Care"
+selecthr -> dse [route=elbow]   # Inferred: the wireframe offers the DSE user to all office staff; the order after SelectHR is assumed
+selecthr -> exchange [route=elbow]   # Inferred: v2 set up MS Exchange before SelectHR; in v3 SelectHR is created first, from the approval screen
+exchange -> is_temp [route=elbow]
+is_temp -> evo [route=elbow] : "No: automation · Yes: manual creation"
+evo -> pp_acp [route=elbow]
+pp_acp -> pp_modules [route=elbow]
+pp_modules -> acp_profile [route=elbow]
+acp_profile -> role_products [route=elbow]
+role_products .. lm_note [route=elbow]
+role_products -> temp_perm [route=elbow]
+temp_perm -> deactivate [route=elbow] : "Yes"
+deactivate -alt-> selecthr [route=elbow] : "Re-create as permanent"
+temp_perm -> end [route=elbow] : "No"
+dse -> dse_assign [route=elbow]
+dse_assign -> admin_needed [route=elbow]   # As v2: the assignment step leads to the manager-role check
+admin_needed -> admin [route=elbow] : "Yes"
+admin_needed -> end [route=elbow] : "No"
+admin -> admin_perms [route=elbow]
+admin_perms -> is_supervisory [route=elbow]
+is_supervisory -> staff_to_mgr [route=elbow] : "Yes"
+is_supervisory -> end [route=elbow] : "No"
+staff_to_mgr -> end [route=elbow]
+pp -alt-> pp_alert [route=elbow] : "Fails validation"
+pp_alert -alt-> fix_fountain [route=elbow]
+pp -> onboarding_tasks [route=elbow]
+onboarding_tasks -> pp_portal [route=elbow]
+pp_portal -> is_driver [route=elbow]
+is_driver -> mileage [route=elbow] : "Yes"
+is_driver -> acp_integration [route=elbow] : "No"
+mileage -> acp_integration [route=elbow]
+acp_integration -> device [route=elbow]
+device -> end [route=elbow]
+
+page "UI layer: screens" size 594x420 direction TB
+
+s_title: text "Fountain onboarding approvals: screens and actions" @ 20,15 220x10 [text=#FA4616 size=14]
+approver: user "Approver (signed in)" @ 20,40 30x24 [size=9]
+s_queue: browser "1 · Approval queue" @ 90,40 48x28 [stroke=#FA4616 weight=1.5 size=9]
+s_created: browser "Created" @ 272,40 40x24 [stroke=#FA4616 weight=1.5 size=9]
+s_audit: browser "Audit log" @ 342,40 40x24 [stroke=#FA4616 weight=1.5 size=9]
+f_search: field "Search name or Fountain ID" @ 90,82 48x10 [size=8]
+f_hub: dropdown "Hub: all, Preston, Burnley, Manchester, Wirral, Rochdale" @ 160,82 60x10 [size=8]
+f_filter: button "Filter: all, ready, issues, office, care" @ 230,82 60x10 [size=8]
+s_office: browser "2 · Applicant page – office staff" @ 41,124 52x28 [stroke=#FA4616 weight=1.5 size=9]
+s_care: browser "3 · Applicant page – care worker" @ 181,124 52x28 [stroke=#FA4616 weight=1.5 size=9]
+b_recheck: button "Re-check from Fountain" @ 114,130 44x10 [size=8]
+b_lumis: button "Create in Lumis" @ 20,183 34x10 [size=8]
+b_selecthr: button "Create in SelectHR" @ 58,183 34x10 [size=8]
+b_dse: button "Create DSE user" @ 97,183 34x10 [size=8]
+b_admin: button "Create admin user" @ 136,183 34x10 [size=8]
+b_lumis_c: button "Create in Lumis" @ 181,183 34x10 [size=8]
+b_pp: button "Create in People Planner" @ 223,183 40x10 [size=8]
+n_systems: text "Only the systems an applicant’s staff group needs are shown. A system with issues stays blocked until the field is corrected in Fountain and re-checked." @ 20,225 160x14 [size=8]
+n_special: text "Equality monitoring is special category data: the page shows only whether each value is present, never the value." @ 188,225 150x14 [size=8]
+approver -> s_queue [route=elbow]
+s_queue <-> s_created [route=elbow] : "Tab"
+s_created <-> s_audit [route=elbow] : "Tab"
+s_queue .. f_search [route=elbow]
+s_queue .. f_hub [route=elbow]
+s_queue .. f_filter [route=elbow]
+s_queue <-> s_office [route=elbow] : "Review / back"
+s_queue <-> s_care [route=elbow] : "Review / back"
+s_office .. b_recheck [route=elbow]
+s_care .. b_recheck [route=elbow]
+s_office .. b_lumis [route=elbow]
+s_office .. b_selecthr [route=elbow]
+s_office .. b_dse [route=elbow]
+s_office .. b_admin [route=elbow]
+s_care .. b_lumis_c [route=elbow]
+s_care .. b_pp [route=elbow]
+
+page "UI layer: field checks" size 594x420 direction LR
+
+c_title: text "Which Fountain fields each system needs" @ 20,16 200x10 [text=#FA4616 size=14]
+fountain_rec: database "Fountain applicant record (via data staging table)" @ 20,136 48x26 [size=9]
+t_lumis: table "Lumis – all staff" { First name; Last name; Email; Role (Fountain funnel); Hub / location; Start date; Lumis username (must be free) } @ 150,40
+t_selecthr: table "SelectHR – office staff" { Title; First name; Last name; Date of birth; National Insurance number; Email; Phone; Address lines 1–3 (3 optional); Postcode; Hub / location; Start date; SelectHR post ID; DBS update service; Next of kin name / number / relationship; Equality monitoring: present or not } @ 150,120
+t_dse: table "DSE Portal – office staff" { First name; Last name; Email; Hub / location } @ 300,40
+t_admin: table "Admin Portal – managers, hub staff, trainers, quote creators" { First name; Last name; Email; Role (Fountain funnel); Hub / location; Admin access type (chosen by approver) } @ 300,120
+t_pp: table "People Planner – rostered care staff" { First name; Last name; Date of birth; Email; Phone; Postcode; Role (Fountain funnel); Hub / location; Start date } @ 450,40
+fountain_rec -data-> t_lumis [route=elbow]
+fountain_rec -data-> t_selecthr [route=elbow]
+fountain_rec -data-> t_dse [route=elbow]
+fountain_rec -data-> t_admin [route=elbow]
+fountain_rec -data-> t_pp [route=elbow]
+n_gender: text "Gender is recorded in Fountain but not currently sent to SelectHR (queried). Equality values are never shown, only whether each is present." @ 317,238 120x14 [size=8]
+n_pp: text "To confirm: the People Planner field list against validate_applicant_row() in pp_fountain_applicant.py. Fields marked DSE and Admin Portal are inferred from the wireframe, which lists them only as \"All systems\"." @ 317,265 150x18 [size=8]

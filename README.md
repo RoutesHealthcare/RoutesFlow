@@ -23,6 +23,12 @@ automatically, around other shapes. Lines are drawn beneath shapes.
 Text sizes come across from Visio (`size=8` in the text, in points) and can be set for any selection in the
 properties panel. Text is measured as drawn, so words are only split when a single word is wider than its shape.
 
+## Diagrams
+
+`flows/` holds diagrams made with the editor. `onboarding-v3.flow` is the onboarding process (v2) with the Fountain
+approval screens built in: the process, the screens and how they connect, and the fields each system needs. A Visio
+copy (`onboarding-v3.vsdx`) is exported from it; edit the `.flow` file and export again rather than editing the copy.
+
 ## Developing
 
 The source is split into an HTML page, a stylesheet and ES modules:
