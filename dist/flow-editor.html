@@ -147,6 +147,19 @@ button:disabled{opacity:.55;cursor:default}
   .bar .name,.bar .hide-sm{display:none}
 }
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
+
+/* guided tour */
+#tour{position:fixed;z-index:40;width:320px;max-width:calc(100vw - 32px);background:var(--panel);color:var(--ink);
+  border:1px solid var(--rule);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.2);padding:12px 16px 14px}
+#tour .count{margin:0;color:var(--muted);font-size:12px}
+#tour h2{margin:2px 0 6px;font-size:15px}
+#tour p{margin:0 0 8px;line-height:1.45}
+#tour .status{color:var(--accent);font-size:12px;min-height:1.4em}
+#tour .tour-btns{display:flex;gap:6px;justify-content:flex-end}
+#tour .primary{background:var(--accent);color:var(--accent-ink)}
+.tour-target{outline:2px solid var(--sel)!important;outline-offset:2px;animation:tour-pulse 1.4s ease-in-out infinite}
+@keyframes tour-pulse{50%{outline-color:transparent}}
+@media (prefers-reduced-motion:reduce){.tour-target{animation:none}}
 </style>
 </head>
 <body>
@@ -167,6 +180,8 @@ button:disabled{opacity:.55;cursor:default}
   <span id="zoomLbl">100%</span>
   <button id="btnZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
   <button id="btnFit" title="Fit page to window">Fit</button>
+  <span class="sep"></span>
+  <button id="btnTour" title="Replay the guided tour">Tour</button>
   <span class="grow"></span>
   <span id="fileName"></span>
   <input type="file" id="fileInput" accept=".flow,.vsdx,.vsdm,.mmd,.mermaid,.puml,.plantuml,.pu,.dot,.gv,.drawio,.xml,.md,.txt" hidden>
@@ -244,13 +259,14 @@ button:disabled{opacity:.55;cursor:default}
     <h2>Page</h2>
     <p id="pageInfo"></p>
     <h2>Getting started</h2>
-    <p>Drag a shape onto the page, or click one to drop it in the middle. Double-click a shape, or select it and start typing, to edit its text. Use Connect to draw lines between shapes; they stay attached when you move things.</p>
+    <p>Drag a shape onto the page, or click one to drop it in the middle. To edit a shape's text, click it once to select it, then click it again, press Enter or just start typing (double-click works too). To select several shapes, drag a box around them on an empty part of the page, or Shift+click each one. Use Connect to draw lines between shapes; they stay attached when you move things.</p>
     <p>The Text tab shows the diagram as text. Edit either side and the other follows. Save keeps the text as a .flow file; Export makes Visio, Mermaid, PlantUML, DOT or draw.io.</p>
     <h2>Connections</h2>
     <label>New connections<select id="pNewConn"></select></label>
     <div class="btns one"><button id="pAddKey">Add a key to this page</button></div>
     <h2>Shortcuts</h2>
     <dl class="keys">
+      <dt>Click again / Enter</dt><dd>Edit the selected shape's text</dd>
       <dt>Ctrl+S</dt><dd>Save</dd>
       <dt>Ctrl+Shift+S</dt><dd>Save as</dd>
       <dt>Ctrl+O</dt><dd>Open</dd>
@@ -271,6 +287,7 @@ button:disabled{opacity:.55;cursor:default}
   <div id="propsShape" hidden>
     <h2 id="selTitle">Shape</h2>
     <label id="textWrap">Text<textarea id="pText" rows="3"></textarea></label>
+    <p class="notes" id="editHint">Or edit it on the page: click the shape again, press Enter or start typing.</p>
     <div class="row">
       <label id="fillWrap">Fill<input type="color" id="pFill"></label>
       <label id="lineWrap">Line<input type="color" id="pLine"></label>
@@ -296,7 +313,7 @@ button:disabled{opacity:.55;cursor:default}
       <label>Meaning shown in the key<input type="text" id="pMeans"></label>
       <div class="btns one"><button id="pReverse">Reverse direction</button></div>
     </div>
-    <p id="tableHint" hidden>Double-click a cell to edit its text.</p>
+    <p id="tableHint" hidden>Click a cell again (or double-click it) to edit its text.</p>
     <div class="btns" id="tableBtns" hidden><button id="pAddRow">Add row</button><button id="pDelRow">Remove row</button></div>
     <div class="btns" id="orderBtns"><button id="pFront">Bring to front</button><button id="pBack">Send to back</button></div>
     <button id="pDelete" class="danger">Delete shape</button>
@@ -322,6 +339,13 @@ button:disabled{opacity:.55;cursor:default}
   </div>
   <div class="tp-status" id="tpStatus" role="status"></div>
 </aside>
+<div id="tour" role="dialog" aria-labelledby="tourTitle" aria-describedby="tourBody" hidden>
+  <p class="count" id="tourCount"></p>
+  <h2 id="tourTitle"></h2>
+  <p id="tourBody"></p>
+  <p class="status" id="tourStatus" aria-live="polite"></p>
+  <div class="tour-btns"><button id="tourEnd">End tour</button><button id="tourNext">Next</button></div>
+</div>
 <button id="textTab" class="texttab" title="Show the diagram text (Ctrl+E)">Text</button>
 
 <nav class="tabs" id="tabs" aria-label="Pages"></nav>
@@ -1745,29 +1769,29 @@ ${cells.map((c) => "        " + c).join("\n")}
         outs[a].push([b, k]);
         linked[a] = linked[b] = true;
       });
-      const state = new Array(N).fill(0), back = /* @__PURE__ */ new Set(), indeg = new Array(N).fill(0);
+      const state2 = new Array(N).fill(0), back = /* @__PURE__ */ new Set(), indeg = new Array(N).fill(0);
       for (const o of outs) for (const [b] of o) indeg[b]++;
       const dfs = (s) => {
         const st = [[s, 0]];
-        state[s] = 1;
+        state2[s] = 1;
         while (st.length) {
           const top = st[st.length - 1], [v, i] = top;
           if (i < outs[v].length) {
             top[1]++;
             const [w, k] = outs[v][i];
-            if (state[w] === 1) back.add(k);
-            else if (!state[w]) {
-              state[w] = 1;
+            if (state2[w] === 1) back.add(k);
+            else if (!state2[w]) {
+              state2[w] = 1;
               st.push([w, 0]);
             }
           } else {
-            state[v] = 2;
+            state2[v] = 2;
             st.pop();
           }
         }
       };
-      for (let i = 0; i < N; i++) if (!indeg[i] && !state[i]) dfs(i);
-      for (let i = 0; i < N; i++) if (!state[i]) dfs(i);
+      for (let i = 0; i < N; i++) if (!indeg[i] && !state2[i]) dfs(i);
+      for (let i = 0; i < N; i++) if (!state2[i]) dfs(i);
       const succ = g.nodes.map(() => []), pred = g.nodes.map(() => []);
       for (let a = 0; a < N; a++) for (const [b, k] of outs[a]) if (!back.has(k)) {
         succ[a].push(b);
@@ -2171,9 +2195,9 @@ ${cells.map((c) => "        " + c).join("\n")}
   var tableH = (cols) => tableHeight(Math.max(1, (cols || []).length)) * 25.4;
   function declObj(d) {
     if (d.implicit) return { id: d.id, kind: "process", label: d.id, place: null, attrs: {} };
-    const place = d.place ? { ...d.place } : null;
-    if (place && d.kind === "table" && place.w != null) place.h = tableH(d.columns);
-    return { id: d.id, kind: d.kind, label: d.label || "", columns: d.columns, place, attrs: d.attrs };
+    const place2 = d.place ? { ...d.place } : null;
+    if (place2 && d.kind === "table" && place2.w != null) place2.h = tableH(d.columns);
+    return { id: d.id, kind: d.kind, label: d.label || "", columns: d.columns, place: place2, attrs: d.attrs };
   }
   function autoSizeMM(o) {
     const s = sizeFor({ kind: o.kind, label: o.label || "", columns: o.columns });
@@ -2472,16 +2496,16 @@ ${cells.map((c) => "        " + c).join("\n")}
     S.pages.forEach((pg, pi) => {
       const ap2 = S.ast.pages[pi];
       if (!ap2) return;
-      const m = modelPage(pi), built = S.built[pi] || /* @__PURE__ */ new Map(), seen = /* @__PURE__ */ new Set(), seenE = /* @__PURE__ */ new Set();
+      const m = modelPage(pi), built = S.built[pi] || /* @__PURE__ */ new Map(), seen2 = /* @__PURE__ */ new Set(), seenE = /* @__PURE__ */ new Set();
       const shapeAt = ap2.lastShapeLine ?? ap2.headerLine ?? ap2.endLine, edgeAt = ap2.lastEdgeLine ?? shapeAt;
       for (const s of m.shapes) {
         const d = ap2.byId.get(s.id), canon = shapeStmt(modelShapeObj(s, d, built));
-        seen.add(s.id);
+        seen2.add(s.id);
         if (d && !d.implicit) {
           if (canon !== shapeStmt(declObj(d))) repl.set(d.line, withTail(L[d.line], canon));
         } else if (!d || canon !== shapeStmt(declObj(d))) add(shapeAt, canon);
       }
-      for (const d of ap2.shapes) if (!d.implicit && !seen.has(d.id)) del.add(d.line);
+      for (const d of ap2.shapes) if (!d.implicit && !seen2.has(d.id)) del.add(d.line);
       for (const e of m.edges) {
         if (!e.from || !e.to || e.from === e.to) continue;
         const canon = edgeStmt(e), ae = e.key != null ? ap2.edgeByLine.get(+e.key) : null;
@@ -2617,11 +2641,11 @@ ${cells.map((c) => "        " + c).join("\n")}
 
   // src/js/formats/import.js
   var newGraph = () => ({ nodes: [], edges: [], direction: "TB", positioned: false, warnings: [] });
-  function graphNode(g, map, id, init15) {
+  function graphNode(g, map, id, init16) {
     let n = map.get(id);
     if (!n) {
       if (g.nodes.length >= MAX_NODES) throw new Error(`the diagram has more than ${MAX_NODES} shapes`);
-      n = { id, kind: "process", label: id, ...init15 };
+      n = { id, kind: "process", label: id, ...init16 };
       map.set(id, n);
       g.nodes.push(n);
     }
@@ -2632,11 +2656,11 @@ ${cells.map((c) => "        " + c).join("\n")}
     return d.body.textContent.replace(/\u00A0/g, " ").replace(/\n{2,}/g, "\n").trim();
   }
   var dedupeEdges = (g) => {
-    const seen = /* @__PURE__ */ new Set();
+    const seen2 = /* @__PURE__ */ new Set();
     g.edges = g.edges.filter((e) => {
       const k = e.from + "\0" + e.to + "\0" + e.label;
-      if (seen.has(k)) return false;
-      seen.add(k);
+      if (seen2.has(k)) return false;
+      seen2.add(k);
       return true;
     });
   };
@@ -3941,14 +3965,14 @@ ${cells.map((c) => "        " + c).join("\n")}
       const kind = FLOW_KINDS.includes(n.kind) ? n.kind : "process", auto = autoSizeMM({ kind, label: n.label, columns: n.columns });
       const w = n.w != null ? n.w * 25.4 : auto.w, h = n.h != null ? n.h * 25.4 : auto.h;
       const sized = Math.abs(w - auto.w) > 0.6 || kind !== "table" && Math.abs(h - auto.h) > 0.6;
-      const place = n.keepPlace !== void 0 ? n.keepPlace : placed && n.x != null ? { x: ox + n.x * 25.4, y: oy + n.y * 25.4, w: sized ? w : null, h: sized ? kind === "table" ? tableH(n.columns) : h : null } : null;
+      const place2 = n.keepPlace !== void 0 ? n.keepPlace : placed && n.x != null ? { x: ox + n.x * 25.4, y: oy + n.y * 25.4, w: sized ? w : null, h: sized ? kind === "table" ? tableH(n.columns) : h : null } : null;
       const hex = (v) => v && /^#[0-9a-f]{6}$/i.test(v) ? v.toUpperCase() : null, T = SHAPES[kind];
       const attrs = n.keepAttrs || (kind === "table" ? {} : {
         fill: hex(n.fill) && hex(n.fill) !== (T.fill || DEF.fill).toUpperCase() ? hex(n.fill) : null,
         stroke: hex(n.line) && hex(n.line) !== DEF.line.toUpperCase() ? hex(n.line) : null,
         text: hex(n.textColour) && hex(n.textColour) !== (T.textColour || DEF.text).toUpperCase() ? hex(n.textColour) : null
       });
-      lines.push(shapeStmt({ id: ids.get(n.id), kind, label: n.label || "", columns: kind === "table" ? n.columns && n.columns.length ? n.columns : ["column"] : null, place, attrs }));
+      lines.push(shapeStmt({ id: ids.get(n.id), kind, label: n.label || "", columns: kind === "table" ? n.columns && n.columns.length ? n.columns : ["column"] : null, place: place2, attrs }));
     }
     for (const e of g.edges) {
       const from = ids.get(e.from), to = ids.get(e.to);
@@ -4162,6 +4186,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     $("pWeight").value = String(opts.reduce((x, y) => Math.abs(y - pt) < Math.abs(x - pt) ? y : x));
     for (const w of ["textWrap", "lineWrap", "weightWrap"]) $(w).hidden = table || key;
     $("tableBtns").hidden = $("tableHint").hidden = !table;
+    $("editHint").hidden = table || key;
     $("fillWrap").hidden = oneD || table || key;
     $("connBox").hidden = !oneD;
     $("sizeRow").hidden = !canResize(el) || key;
@@ -4183,7 +4208,7 @@ ${cells.map((c) => "        " + c).join("\n")}
   function showMultiProps() {
     const els = selEls();
     $("selTitle").textContent = `${els.length} items selected`;
-    for (const w of ["textWrap", "sizeRow", "connBox", "tableBtns", "tableHint", "orderBtns"]) $(w).hidden = true;
+    for (const w of ["textWrap", "editHint", "sizeRow", "connBox", "tableBtns", "tableHint", "orderBtns"]) $(w).hidden = true;
     $("fillWrap").hidden = !els.some(fillable);
     $("lineWrap").hidden = $("weightWrap").hidden = !els.some(styleable);
     $("pDelete").textContent = `Delete ${els.length} items`;
@@ -4460,13 +4485,13 @@ ${cells.map((c) => "        " + c).join("\n")}
     return best;
   }
   function stackAt(e) {
-    const pt = toPage(e), tol = HIT_TOL_PX / S.zoom, seen = /* @__PURE__ */ new Set(), hits = [];
+    const pt = toPage(e), tol = HIT_TOL_PX / S.zoom, seen2 = /* @__PURE__ */ new Set(), hits = [];
     for (const n of document.elementsFromPoint(e.clientX, e.clientY)) {
       const g = n.closest && n.closest("#layer > [data-id]");
       if (!g) continue;
       const id = g.dataset.id;
-      if (seen.has(id) || !S.elById[id]) continue;
-      seen.add(id);
+      if (seen2.has(id) || !S.elById[id]) continue;
+      seen2.add(id);
       let rank, area = 0;
       if (isConnector(id)) {
         if (!n.closest("text") && distToLines(S.lines[id], pt.px, pt.py) > tol) continue;
@@ -4581,7 +4606,8 @@ ${cells.map((c) => "        " + c).join("\n")}
           updateProps();
         } else select(pick);
         const ids = selIds().filter((id) => !isConnector(id));
-        const base = { pick, prev, stack, alt: e.altKey, collapse: wasSelected && S.selection.size > 1, p0: p, moved: false };
+        const again = wasSelected && S.selection.size === 1;
+        const base = { pick, prev, stack, alt: e.altKey, again, collapse: wasSelected && S.selection.size > 1, p0: p, moved: false };
         drag = ids.length ? {
           ...base,
           kind: "move",
@@ -4668,6 +4694,7 @@ ${cells.map((c) => "        " + c).join("\n")}
           const next = d.stack[(d.stack.indexOf(d.prev) + 1) % d.stack.length];
           select(next);
         } else if (d.collapse) select(d.pick);
+        else if (d.again && !d.alt) editText(d.pick, void 0, toPage(e));
         return;
       }
       if (d.kind === "connect") {
@@ -5607,7 +5634,7 @@ ${cells.map((c) => "        " + c).join("\n")}
         commit(() => moveMany(ids, d[0], d[1]));
         return;
       }
-      if (e.key === "F2" && one) {
+      if ((e.key === "F2" || e.key === "Enter") && one) {
         e.preventDefault();
         editText(S.sel);
         return;
@@ -5630,10 +5657,190 @@ ${cells.map((c) => "        " + c).join("\n")}
     window.addEventListener("resize", () => applyView());
   }
 
+  // src/js/tutorial.js
+  var SEEN_KEY = "flowEditor.tourSeen";
+  var GAP = 12;
+  var shapeIds = () => topLevelIds().filter((id) => !isConnector(id) && roleOf(S.elById[id]) !== "key");
+  var connectionCount = () => topLevelIds().filter(isConnector).length;
+  var textsKey = () => shapeIds().map((id) => shapeText(shapeCtx(S.elById[id], null))).sort().join("\0");
+  var countShapes = () => ({ n: shapeIds().length });
+  var moreShapes = (s) => shapeIds().length > s.n;
+  var STEPS = [
+    {
+      title: "Welcome",
+      next: "Start",
+      body: "This tour covers the basics: adding shapes, editing their text, connecting them and selecting several at once. It takes about a minute. You can end it at any time and replay it from the Tour button."
+    },
+    {
+      title: "Add a shape",
+      target: '.palette [data-kind="process"]',
+      start: countShapes,
+      done: moreShapes,
+      body: "Click Process in the shape list, or drag it onto the page."
+    },
+    {
+      title: "Edit its text",
+      target: null,
+      start: () => ({ t: textsKey() }),
+      done: (s) => !S.editing && textsKey() !== s.t,
+      body: "Click the new shape to select it, then click it again (or press Enter, or just start typing) to edit its text. Type a name, then press Ctrl+Enter or click elsewhere to finish."
+    },
+    {
+      title: "Add another shape",
+      target: '.palette [data-kind="decision"]',
+      start: countShapes,
+      done: moreShapes,
+      body: "Drag a Decision from the list to an empty spot on the page. If you click it instead, it lands in the middle, so drag it aside."
+    },
+    {
+      title: "Connect them",
+      target: "#toolConnect",
+      start: () => ({ n: connectionCount() }),
+      done: (s) => connectionCount() > s.n,
+      body: "Turn on Connect, then drag from one shape to the other. The line stays attached when you move either shape."
+    },
+    {
+      title: "Select several",
+      target: null,
+      done: () => S.selection.size >= 2,
+      body: "Press Esc, then drag a box around both shapes, starting on an empty part of the page. Shift+click also adds or removes single items."
+    },
+    {
+      title: "Work on the selection",
+      target: "#props",
+      next: "Next",
+      body: "Everything selected moves together when you drag it or use the arrow keys. You can also change colours here, duplicate with Ctrl+D or delete. Ctrl+Z undoes any change."
+    },
+    {
+      title: "The diagram as text",
+      target: "#textTab",
+      next: "Next",
+      body: "The Text tab shows the diagram as text. Change either the drawing or the text and the other follows."
+    },
+    {
+      title: "Save and share",
+      target: "#btnSave",
+      next: "Finish",
+      body: "Save keeps the diagram as a .flow file. Export makes Visio, Mermaid, PlantUML, DOT or draw.io. Press Tour at the top to see this again."
+    }
+  ];
+  var step = -1;
+  var state = null;
+  var highlighted = null;
+  var checkQueued = false;
+  var observer = null;
+  function markSeen() {
+    try {
+      localStorage.setItem(SEEN_KEY, "1");
+    } catch (_) {
+    }
+  }
+  function seen() {
+    try {
+      return localStorage.getItem(SEEN_KEY) === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+  function startTour() {
+    markSeen();
+    $("tour").hidden = false;
+    observer.observe($("layer"), { childList: true });
+    observer.observe($("overlay"), { childList: true });
+    observer.observe($("textEditor"), { attributes: true, attributeFilter: ["hidden"] });
+    show(0);
+  }
+  function endTour() {
+    if (step < 0) return;
+    step = -1;
+    state = null;
+    observer.disconnect();
+    highlight(null);
+    $("tour").hidden = true;
+  }
+  function maybeStartTour() {
+    if (!seen()) startTour();
+  }
+  function show(i) {
+    if (i >= STEPS.length) {
+      endTour();
+      return;
+    }
+    step = i;
+    const s = STEPS[i];
+    state = { ...s.start ? s.start() : {} };
+    $("tourCount").textContent = `Step ${i + 1} of ${STEPS.length}`;
+    $("tourTitle").textContent = s.title;
+    $("tourBody").textContent = s.body;
+    $("tourStatus").textContent = s.done ? "Waiting for you to do this\u2026" : "";
+    $("tourNext").textContent = s.done ? "Skip this step" : s.next;
+    $("tourNext").classList.toggle("primary", !s.done);
+    highlight(s.target ? document.querySelector(s.target) : null);
+    place();
+    if (!s.done) $("tourNext").focus();
+  }
+  function highlight(el) {
+    if (highlighted) highlighted.classList.remove("tour-target");
+    highlighted = el;
+    if (el) el.classList.add("tour-target");
+  }
+  function place() {
+    const card = $("tour"), W = card.offsetWidth, H = card.offsetHeight, vw = innerWidth, vh = innerHeight;
+    let x, y;
+    if (highlighted) {
+      const r = highlighted.getBoundingClientRect();
+      if (r.right + GAP + W <= vw) {
+        x = r.right + GAP;
+        y = r.top;
+      } else if (r.bottom + GAP + H <= vh) {
+        x = r.left;
+        y = r.bottom + GAP;
+      } else {
+        x = r.left - GAP - W;
+        y = r.top;
+      }
+    } else {
+      const r = $("stage").getBoundingClientRect();
+      x = r.right - W - 16;
+      y = r.bottom - H - 16;
+    }
+    card.style.left = Math.max(8, Math.min(x, vw - W - 8)) + "px";
+    card.style.top = Math.max(8, Math.min(y, vh - H - 8)) + "px";
+  }
+  function queueCheck() {
+    if (checkQueued || step < 0) return;
+    checkQueued = true;
+    requestAnimationFrame(() => {
+      checkQueued = false;
+      const s = STEPS[step];
+      if (!s || !s.done) return;
+      try {
+        if (s.done(state)) show(step + 1);
+      } catch (err) {
+        console.warn("Tour step check failed; skipping the step", s.title, err);
+        show(step + 1);
+      }
+    });
+  }
+  function init15() {
+    observer = new MutationObserver(queueCheck);
+    for (const ev of ["pointerup", "keyup", "focusout"]) document.addEventListener(ev, queueCheck);
+    $("tourNext").onclick = () => show(step + 1);
+    $("tourEnd").onclick = endTour;
+    $("btnTour").onclick = () => {
+      endTour();
+      startTour();
+    };
+    window.addEventListener("resize", () => {
+      if (step >= 0) place();
+    });
+  }
+
   // src/js/main.js
-  for (const init15 of [init11, init10, init8, init9, init12, init7, init2, init5, init13, init, init3, init4, init6, init14]) init15();
+  for (const init16 of [init11, init10, init8, init9, init12, init7, init2, init5, init13, init, init3, init4, init6, init14, init15]) init16();
   newDoc();
   setPane(TP.open, TP.pinned);
+  maybeStartTour();
   if (!window.JSZip) toast("The zip library did not load, so Visio files cannot be opened or exported. Check the internet connection and reload.", 8e3);
 })();
 </script>

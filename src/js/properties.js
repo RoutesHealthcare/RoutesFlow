@@ -32,6 +32,7 @@ export function updateProps(){
   $('pWeight').value=String(opts.reduce((x,y)=>Math.abs(y-pt)<Math.abs(x-pt)?y:x));
   for(const w of ['textWrap','lineWrap','weightWrap']) $(w).hidden=table||key;
   $('tableBtns').hidden=$('tableHint').hidden=!table;
+  $('editHint').hidden=table||key;
   $('fillWrap').hidden=oneD||table||key; $('connBox').hidden=!oneD; $('sizeRow').hidden=!canResize(el)||key;
   $('pW').value=Math.round(num(sh,'Width',0)*25.4); $('pH').value=Math.round(num(sh,'Height',0)*25.4);
   $('orderBtns').hidden=oneD;
@@ -45,7 +46,7 @@ export const selEl=()=>S.sel&&S.elById[S.sel];
 function showMultiProps(){
   const els=selEls();
   $('selTitle').textContent=`${els.length} items selected`;
-  for(const w of ['textWrap','sizeRow','connBox','tableBtns','tableHint','orderBtns']) $(w).hidden=true;
+  for(const w of ['textWrap','editHint','sizeRow','connBox','tableBtns','tableHint','orderBtns']) $(w).hidden=true;
   $('fillWrap').hidden=!els.some(fillable);
   $('lineWrap').hidden=$('weightWrap').hidden=!els.some(styleable);
   $('pDelete').textContent=`Delete ${els.length} items`;

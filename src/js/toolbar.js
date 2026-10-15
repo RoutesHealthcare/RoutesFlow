@@ -39,7 +39,7 @@ export function init(){
       const d={ArrowLeft:[-st,0],ArrowRight:[st,0],ArrowUp:[0,st],ArrowDown:[0,-st]}[e.key];
       commit(()=>moveMany(ids,d[0],d[1])); return;
     }
-    if(e.key==='F2'&&one){ e.preventDefault(); editText(S.sel); return; }
+    if((e.key==='F2'||e.key==='Enter')&&one){ e.preventDefault(); editText(S.sel); return; }
     if(!mod&&!e.altKey&&e.key.length===1&&one){ e.preventDefault(); editText(S.sel,e.key); }
   });
   document.addEventListener('keyup',e=>{ if(e.key===' ') setSpaceHeld(false); });

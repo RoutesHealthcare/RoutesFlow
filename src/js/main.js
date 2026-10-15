@@ -15,10 +15,12 @@ import {init as initFlowLanguage} from './flow/language.js';
 import {init as initConnectionProps} from './connection-props.js';
 import {init as initTextPane, TP, setPane} from './text-pane.js';
 import {init as initToolbar} from './toolbar.js';
+import {init as initTutorial, maybeStartTour} from './tutorial.js';
 import {toast} from './core.js';
 import {newDoc} from './document.js';
 
-for(const init of [initShapes, initSelection, initTextEditor, initPointer, initPalette, initProperties, initFormatsExport, initFormatsImport, initDialogs, initFlowModel, initFlowLanguage, initConnectionProps, initTextPane, initToolbar]) init();
+for(const init of [initShapes, initSelection, initTextEditor, initPointer, initPalette, initProperties, initFormatsExport, initFormatsImport, initDialogs, initFlowModel, initFlowLanguage, initConnectionProps, initTextPane, initToolbar, initTutorial]) init();
 
 newDoc(); setPane(TP.open,TP.pinned);
+maybeStartTour();
 if(!window.JSZip) toast('The zip library did not load, so Visio files cannot be opened or exported. Check the internet connection and reload.',8000);

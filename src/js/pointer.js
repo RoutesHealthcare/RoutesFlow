@@ -119,7 +119,8 @@ export function init(){
       const wasSelected=S.selection.has(pick), prev=S.sel;
       if(wasSelected){ S.sel=pick; drawOverlay(); updateProps(); } else select(pick);
       const ids=selIds().filter(id=>!isConnector(id));   // connections follow their shapes; they are not dragged on their own
-      const base={pick,prev,stack,alt:e.altKey,collapse:wasSelected&&S.selection.size>1,p0:p,moved:false};
+      const again=wasSelected&&S.selection.size===1;   // a second click on the only selected object edits its text
+      const base={pick,prev,stack,alt:e.altKey,again,collapse:wasSelected&&S.selection.size>1,p0:p,moved:false};
       drag=ids.length?{...base,kind:'move',ids,lead:ids.includes(pick)?pick:ids[0],
         orig:new Map(ids.map(id=>[id,S.elById[id].cloneNode(true)])),snap:snapshot()}:{...base,kind:'click'};
     }
@@ -164,6 +165,7 @@ export function init(){
     if((d.kind==='move'||d.kind==='click')&&!d.moved){
       if(d.alt&&d.stack.length>1){ const next=d.stack[(d.stack.indexOf(d.prev)+1)%d.stack.length]; select(next); }   // Alt+click: the object underneath
       else if(d.collapse) select(d.pick);   // a plain click inside a multi-selection keeps only that object
+      else if(d.again&&!d.alt) editText(d.pick,undefined,toPage(e));
       return;
     }
     if(d.kind==='connect'){

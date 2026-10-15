@@ -139,3 +139,16 @@ button:disabled{opacity:.55;cursor:default}
   .bar .name,.bar .hide-sm{display:none}
 }
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
+
+/* guided tour */
+#tour{position:fixed;z-index:40;width:320px;max-width:calc(100vw - 32px);background:var(--panel);color:var(--ink);
+  border:1px solid var(--rule);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.2);padding:12px 16px 14px}
+#tour .count{margin:0;color:var(--muted);font-size:12px}
+#tour h2{margin:2px 0 6px;font-size:15px}
+#tour p{margin:0 0 8px;line-height:1.45}
+#tour .status{color:var(--accent);font-size:12px;min-height:1.4em}
+#tour .tour-btns{display:flex;gap:6px;justify-content:flex-end}
+#tour .primary{background:var(--accent);color:var(--accent-ink)}
+.tour-target{outline:2px solid var(--sel)!important;outline-offset:2px;animation:tour-pulse 1.4s ease-in-out infinite}
+@keyframes tour-pulse{50%{outline-color:transparent}}
+@media (prefers-reduced-motion:reduce){.tour-target{animation:none}}

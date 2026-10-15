@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "serve": "node build.mjs --serve"
+    "serve": "node build.mjs --serve",
+    "test": "npm run build && playwright test",
+    "test:ui": "npm run build && playwright test --ui"
   },
   "devDependencies": {
-    "esbuild": "0.24.2"
+    "@playwright/test": "1.56.1",
+    "esbuild": "0.24.2",
+    "jszip": "3.10.1"
   }
 }

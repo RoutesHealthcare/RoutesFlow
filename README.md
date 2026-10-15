@@ -5,6 +5,7 @@ A browser-based diagram editor. Drawings are stored as `.flow` text and can be i
 ## Using it
 
 Open `dist/flow-editor.html` in a browser. It is a single self-contained file, so it works straight from disk.
+A short guided tour opens on the first visit; the Tour button replays it.
 
 ## Developing
 
@@ -38,6 +39,7 @@ src/
   js/visio-io.js         Visio import/export, opening and saving files
   js/text-pane.js        the text pane
   js/toolbar.js          toolbar buttons and keyboard shortcuts
+  js/tutorial.js         the guided tour
 ```
 
 Modules only declare things when imported. Anything that touches the page (event listeners, DOM lookups) is in the module's `init()`, and `main.js` calls those in a fixed order.
@@ -54,3 +56,19 @@ After changing anything in `src/`, rebuild the single-file copy and commit it wi
 ```shell
 npm run build      # writes dist/flow-editor.html
 ```
+
+## Testing
+
+End-to-end tests use Playwright and run every spec twice: against the modules in `src/` (served by
+`build.mjs --serve`) and against the single-file `dist/flow-editor.html` opened from disk. JSZip is served from
+`node_modules` instead of the CDN, so the tests work offline.
+
+```shell
+npm install
+npx playwright install chromium   # first time only
+npm test                          # builds, then runs tests/e2e
+npm run test:ui                   # Playwright's interactive runner
+```
+
+`tests/e2e/fixtures.js` holds a small page object (`FlowApp`) that drives the editor through its UI only:
+find shapes by their text, click, drag, read the selection title. Specs fail on any uncaught page error.
