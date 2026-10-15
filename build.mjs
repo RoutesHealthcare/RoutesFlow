@@ -1,14 +1,14 @@
 /* Builds dist/flow-editor.html: one self-contained file (CSS and bundled JS inlined) that works when opened
    straight from disk. The modular source in src/ needs a web server, because browsers refuse ES modules over file://.
 
-   npm run build           write dist/flow-editor.html
+   npm run build           write dist/Routesflow-editor.html
    npm run serve           serve src/ at http://localhost:8000 for development (no build step needed) */
 import {build} from 'esbuild';
 import {readFile, writeFile, mkdir} from 'node:fs/promises';
 import {createServer} from 'node:http';
 import {extname, join, normalize, resolve, sep} from 'node:path';
 
-const SRC=resolve('src'), OUT=resolve('dist/flow-editor.html');
+const SRC=resolve('src'), OUT=resolve('dist/Routesflow-editor.html');
 const CSS_LINK='<link rel="stylesheet" href="css/flow-editor.css">';
 const JS_ENTRY='<script type="module" src="js/main.js"></script>';
 
