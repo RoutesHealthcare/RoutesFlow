@@ -152,3 +152,9 @@ button:disabled{opacity:.55;cursor:default}
 .tour-target{outline:2px solid var(--sel)!important;outline-offset:2px;animation:tour-pulse 1.4s ease-in-out infinite}
 @keyframes tour-pulse{50%{outline-color:transparent}}
 @media (prefers-reduced-motion:reduce){.tour-target{animation:none}}
+#overlay .handle.seg{fill:var(--sel)}
+#overlay .handle.seg.ns{cursor:ns-resize}
+#overlay .handle.seg.ew{cursor:ew-resize}
+#overlay .handle.seg{fill:var(--sel)}
+#overlay .handle.seg.ns{cursor:ns-resize}
+#overlay .handle.seg.ew{cursor:ew-resize}

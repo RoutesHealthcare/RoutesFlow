@@ -13,8 +13,15 @@ the first page can go on a new page, replace this page or sit beside what is the
 code and similar Visio stencils) keep their artwork: the picture is stored once per distinct icon as an
 `icon name "data:image/svg+xml;base64,..."` line under the `flow 1` header, and shapes use it with `[icon=name]`. The
 shape keeps its nearest editor type, so text exports still work. Other Visio-only formatting is not kept. A connection's route (straight or right-angled) can be changed in the properties panel;
-in the text it is `route=elbow`, with any imported bend points as `via="x,y x,y"` in mm. Moving a connected shape
-drops its bend points and re-routes the line.
+in the text it is `route=elbow`, with any imported bend points as `via="x,y x,y"` in mm.
+
+Right-angled lines are edited as in Visio: select one and drag the square handle on any segment sideways; the end
+handles re-attach either end. Moving a group of shapes moves the routes between them too; moving or resizing one
+end keeps the bends and slides the one next to that end so the line stays square. A line without bends is routed
+automatically, around other shapes. Lines are drawn beneath shapes.
+
+Text sizes come across from Visio (`size=8` in the text, in points) and can be set for any selection in the
+properties panel. Text is measured as drawn, so words are only split when a single word is wider than its shape.
 
 ## Developing
 

@@ -59,7 +59,7 @@ export function moveMany(ids,dx,dy){
   const movable=ids.filter(id=>S.elById[id]&&!isConnector(id));   // connections follow their shapes
   for(const id of movable){ const el=S.elById[id], sh=shapeCtx(el,null);
     setCell(el,'PinX',num(sh,'PinX',0)+dx); setCell(el,'PinY',num(sh,'PinY',0)+dy); }
-  if(movable.length){ render(); refreshForMany(movable); }
+  if(movable.length){ render(); refreshForMany(movable,{dx,dy}); }
 }
 const moveBy=(id,dx,dy)=>moveMany([id],dx,dy);
 

@@ -9,7 +9,7 @@ export const KIND_ALIASES={rect:'process',box:'process',step:'process',diamond:'
   circle:'ellipse',label:'text',note:'text',screen:'mobile',input:'field',select:'dropdown'};
 export let FLOW_KINDS;
 export const FLOW_ID=/^[A-Za-z_][\w-]*$/;
-const SHAPE_ATTRS=['fill','stroke','text','weight','icon'], EDGE_ATTRS=['style','start','end','stroke','weight','means','route','via'];
+const SHAPE_ATTRS=['fill','stroke','text','weight','size','icon'], EDGE_ATTRS=['style','start','end','stroke','weight','size','means','route','via'];
 /* A picture kept from an import, such as a Visio icon: icon web_design "data:image/svg+xml;base64,..."
    Only SVG and PNG data URIs are accepted; they are drawn with <image>, which runs no scripts and loads nothing. */
 export const ICON_DATA=/^data:image\/(?:svg\+xml|png);base64,[A-Za-z0-9+/]+=*$/;
@@ -39,6 +39,7 @@ function parseAttrs(s,allowed,fail){
     if(!allowed.includes(k)) return fail(`Unknown setting "${m[1]}". Use ${allowed.join(', ')}.`);
     if((k==='fill'||k==='stroke'||k==='text')&&!/^#[0-9a-f]{6}$/i.test(v)) return fail(`${k} needs a colour like #1F6F78.`);
     if(k==='weight'){ const w=+v; if(!(w>=0.25&&w<=12)) return fail('weight is a line thickness in points, from 0.25 to 12.'); v=w; }
+    if(k==='size'){ const z=+v; if(!(z>=4&&z<=96)) return fail('size is a text size in points, from 4 to 96.'); v=z; }
     if(k==='style'&&!LINE_STYLES[v]) return fail('style is solid, dashed or dotted.');
     if((k==='start'||k==='end')&&!MARKERS[v]) return fail(`${k} is one of: ${Object.keys(MARKERS).join(', ')}.`);
     if(k==='route'&&v!=='straight'&&v!=='elbow') return fail('route is straight or elbow.');
@@ -144,8 +145,8 @@ export function edgeStmt(e){
   else if(t==='custom'){ tok='--'; Object.assign(a,{style:e.style,start:e.start,end:e.end}); }
   else tok=CONN[t].token;
   const elbow=e.route==='elbow';
-  Object.assign(a,orderedAttrs({stroke:e.stroke,weight:e.weight,means:e.means,route:elbow?'elbow':null,via:elbow&&e.via&&e.via.length?viaToStr(e.via):null},
-    ['stroke','weight','means','route','via']));
+  Object.assign(a,orderedAttrs({stroke:e.stroke,weight:e.weight,size:e.size,means:e.means,route:elbow?'elbow':null,via:elbow&&e.via&&e.via.length?viaToStr(e.via):null},
+    ['stroke','weight','size','means','route','via']));
   let s=`${e.from} ${tok} ${e.to}`; const as=attrStr(a); if(as) s+=' '+as; if(e.label) s+=' : '+qs(e.label); return s;
 }
 export const keyStmt=k=>`key ${qs(k.title||'Key')}`+(k.place?` @ ${mmN(k.place.x)},${mmN(k.place.y)}`:'');

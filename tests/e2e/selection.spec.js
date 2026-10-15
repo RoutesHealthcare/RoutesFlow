@@ -45,3 +45,9 @@ test('Alt+click selects the shape underneath', async({app,page})=>{
   await page.keyboard.down('Alt'); await page.mouse.click(a.x,a.y); await page.keyboard.up('Alt');
   await expect(app.title).toHaveText('Shape a1');
 });
+
+test('shift+click on the page does not select text in the panels', async({app,page})=>{
+  await app.click('Step A');
+  await app.click('Form',{modifiers:['Shift']});
+  expect(await page.evaluate(()=>String(window.getSelection()))).toBe('');
+});

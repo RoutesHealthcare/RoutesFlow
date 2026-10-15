@@ -7,6 +7,7 @@ import {commitText} from './text-editor.js';
 import {drawHover} from './pointer.js';
 import {updateProps} from './properties.js';
 import {drawMarker, markerOf, userV} from './flow/model.js';
+import {routePoints} from './connectors.js';
 import {addPage} from './visio-io.js';
 import {refreshEditor} from './text-pane.js';
 
@@ -17,13 +18,30 @@ function arrowHead(from,tip,sz,col){
   const bx=tip[0]-ux*sz, by=tip[1]-uy*sz, w=sz*0.42;
   return svgEl('path',{d:`M${tip[0]} ${tip[1]}L${bx-uy*w} ${by+ux*w}L${bx+uy*w} ${by-ux*w}Z`,fill:col,stroke:'none'});
 }
-function wrap(t,maxW,fs){
-  const maxC=Math.max(4,Math.floor(maxW/(fs*0.5))), out=[];
+const FONT='Calibri, "Segoe UI", Arial, sans-serif';
+let measureCtx=null; const widths=new Map();
+/* Width of a string in px at font size fs, measured with the font the canvas draws in (cached) */
+function textWidth(str,fs,bold){
+  const key=`${bold?1:0}|${fs}|${str}`; let w=widths.get(key);
+  if(w==null){
+    measureCtx=measureCtx||document.createElement('canvas').getContext('2d');
+    measureCtx.font=`${bold?'bold ':''}${fs}px ${FONT}`; w=measureCtx.measureText(str).width;
+    if(widths.size>20000) widths.clear(); widths.set(key,w);
+  }
+  return w;
+}
+/* Breaks text into lines no wider than maxW. A word is only split when it is wider than a line on its own. */
+function wrap(t,maxW,fs,bold=false){
+  const out=[], fits=s=>textWidth(s,fs,bold)<=maxW;
   for(const para of t.split('\n')){
     let line='';
     for(const w of para.split(/\s+/)){ if(!w) continue;
-      if(!line) line=w; else if((line+' '+w).length<=maxC) line+=' '+w; else { out.push(line); line=w; }
-      while(line.length>maxC){ out.push(line.slice(0,maxC)); line=line.slice(maxC); } }
+      const tryLine=line?line+' '+w:w;
+      if(fits(tryLine)){ line=tryLine; continue; }
+      if(line) out.push(line);
+      line=w;
+      while(!fits(line)&&line.length>1){ let n=line.length-1; while(n>1&&!fits(line.slice(0,n))) n--; out.push(line.slice(0,n)); line=line.slice(n); }
+    }
     out.push(line);
   }
   return out;
@@ -88,13 +106,13 @@ function drawShape(el,parentM,inheritMid,g){
     const ha=oneD?1:parseInt(rowV(sh,'Paragraph','0','HorzAlign'),10);   // 0 left, 1 centre, 2 right
     const anchor=ha===0?'start':ha===2?'end':'middle', half=Math.max(Math.abs(tw)*scale/2-4,0);
     const tx=anchor==='start'?c[0]-half:anchor==='end'?c[0]+half:c[0];
-    drawLabel(g,wrap(txt,wpx,fs),tx,c[1],{fs,anchor,col,style,halo:oneD});
+    drawLabel(g,wrap(txt,wpx,fs,!!(style&1)),tx,c[1],{fs,anchor,col,style,halo:oneD});
   }
 }
 /* Wrapped lines of text. valign 'middle' centres the block on y; 'top' hangs it just below y. */
 function drawLabel(g,lines,tx,y,{fs,anchor='middle',col,style=0,halo=false,valign='middle'}){
   const lh=fs*1.2, first=valign==='top'?fs:-(lines.length-1)*lh/2+fs*0.35;
-  const t=svgEl('text',{x:tx,y,'font-size':fs,'text-anchor':anchor,fill:col,'font-family':'Calibri, "Segoe UI", Arial, sans-serif',
+  const t=svgEl('text',{x:tx,y,'font-size':fs,'text-anchor':anchor,fill:col,'font-family':FONT,
     'font-weight':style&1?'bold':null,'font-style':style&2?'italic':null,'text-decoration':style&4?'underline':null});
   if(halo) t.setAttribute('style','paint-order:stroke;stroke:#FFFFFF;stroke-width:4px;stroke-linejoin:round');
   lines.forEach((ln,i)=>{ const ts=svgEl('tspan',{x:tx,dy:i===0?first:lh}); ts.textContent=ln; t.appendChild(ts); });
@@ -121,7 +139,8 @@ export function render(){
   S.boxes={}; S.polys={}; S.elById={}; S.lines={};
   for(const s of pg.doc.getElementsByTagNameNS(NS,'Shape')) S.elById[s.getAttribute('ID')]=s;
   const base=[PX,0,0,-PX,0,ph];
-  for(const el of kids(kid(pg.doc.documentElement,'Shapes'),'Shape')){
+  const top=kids(kid(pg.doc.documentElement,'Shapes'),'Shape'), line=el=>is1D(shapeCtx(el,null));
+  for(const el of [...top.filter(line),...top.filter(el=>!line(el))]){   // lines go beneath shapes, so a line never shows across a box
     const g=svgEl('g',{'data-id':el.getAttribute('ID')}); layer.appendChild(g);
     try{ drawShape(el,base,null,g); }catch(err){ console.warn('Could not draw shape',el.getAttribute('ID'),err); }
   }
@@ -136,6 +155,13 @@ export function drawOverlay(){
   if(S.selection.size!==1||!S.boxes[S.sel]) return;   // handles only make sense for one object
   const b=S.boxes[S.sel], el=S.elById[S.sel], sh=shapeCtx(el,null), hs=10/S.zoom, pg=pageCtx();
   if(is1D(sh)){
+    if(userV(el,'FlowRoute')==='elbow'){   // a handle in the middle of each segment drags it sideways
+      const pts=routePoints(S.sel);
+      for(let i=0;i<pts.length-1;i++){ const a=pts[i], c=pts[i+1]; if(Math.hypot(c[0]-a[0],c[1]-a[1])*S.zoom<16) continue;
+        const across=Math.abs(a[1]-c[1])<0.5;
+        ov.appendChild(svgEl('rect',{x:(a[0]+c[0])/2-hs*0.45,y:(a[1]+c[1])/2-hs*0.45,width:hs*0.9,height:hs*0.9,rx:hs*0.15,
+          class:'handle seg '+(across?'ns':'ew'),'data-handle':'seg-'+i})); }
+    }
     for(const [h,X,Y] of [['begin',num(sh,'BeginX',0),num(sh,'BeginY',0)],['end',num(sh,'EndX',0),num(sh,'EndY',0)]])
       ov.appendChild(svgEl('circle',{cx:X*PX,cy:(pg.h-Y)*PX,r:hs*0.65,class:'handle','data-handle':h}));
   } else if(canResize(el)){

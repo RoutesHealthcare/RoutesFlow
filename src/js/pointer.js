@@ -2,7 +2,7 @@
 import {$, distToPolyline, PX, S, setCell, snapIn, stage, svg, svgEl, toast} from './core.js';
 import {is1D, num, shapeCtx} from './visio-package.js';
 import {applyView, drawOverlay, pageCtx, render, zoomAt} from './render.js';
-import {centreOf, clearBends, refreshConnector, refreshFor, refreshForMany, setGlue} from './connectors.js';
+import {bendsAround, centreOf, clearBends, refreshConnector, refreshFor, refreshForMany, routePoints, setBends, setGlue} from './connectors.js';
 import {addConnector, applySize, roleOf} from './shapes.js';
 import {HIT_TOL_PX, isConnector, selIds, select, toggleSelection, topLevelIds} from './selection.js';
 import {commitText, editText} from './text-editor.js';
@@ -37,6 +37,7 @@ function stackAt(e){
     }
     hits.push({id,rank,area,z:hits.length});
   }
+  if(hits.some(h=>h.rank===1)) for(const h of hits) if(h.rank===0) h.rank=1.5;   // lines run beneath shapes, so a shape on top wins
   return hits.sort((a,b)=>a.rank-b.rank||a.area-b.area||a.z-b.z).map(h=>h.id);
 }
 /* With Alt held, a selected object under the pointer keeps priority, so a covered shape can be dragged */
@@ -72,7 +73,22 @@ function moveDrag(d,dx,dy,free){
   let L=left+dx, B=bottom+dy; if(!free){ L=snapIn(L); B=snapIn(B); }
   for(const [id,orig] of d.orig){ const el=S.elById[id], o=shapeCtx(orig,null); if(!el) continue;
     setCell(el,'PinX',num(o,'PinX',0)+L-left); setCell(el,'PinY',num(o,'PinY',0)+B-bottom); }
-  render(); refreshForMany(d.ids); render();
+  render(); refreshForMany(d.ids,{dx:L-left,dy:B-bottom,from:d.bends}); render();
+}
+
+/* Drags one segment of a right-angled line sideways, as in Visio. Moving the first or last segment keeps the end
+   where it meets its shape: a short stub out of the shape is added and the line turns onto the moved segment. */
+const SEG_STUB=12;   // px
+function dragSegment(d,p,free){
+  const pts=d.pts.map(q=>[...q]); let i=d.i;
+  const axis=Math.abs(pts[i][1]-pts[i+1][1])<0.5?1:0;   // a horizontal segment moves up or down, a vertical one sideways
+  const stub=(from,to)=>{ const q=[...from]; q[1-axis]+=(Math.sign(to[1-axis]-from[1-axis])||1)*SEG_STUB; return q; };
+  if(i===pts.length-2){ const q=stub(pts[i+1],pts[i]); pts.splice(i+1,0,q,[...q]); }
+  if(i===0){ const q=stub(pts[0],pts[1]); pts.splice(1,0,q,[...q]); i+=2; }
+  let v=axis?p.py:p.px; if(!free) v=snapIn(v/PX)*PX;
+  pts[i][axis]=v; pts[i+1][axis]=v;
+  setBends(d.id,pts.slice(1,-1).map(([x,y])=>[x/PX*25.4,y/PX*25.4]));
+  refreshConnector(d.id); render();
 }
 
 /* ---------- pointer interaction ---------- */
@@ -87,6 +103,7 @@ export function init(){
     if(!hoverRaf) hoverRaf=requestAnimationFrame(()=>{ hoverRaf=0; if(!drag&&hoverEvt) setHover(pickFrom(stackAt(hoverEvt),hoverEvt.altKey)); });
   });
   svg.addEventListener('pointerleave',()=>setHover(null));
+  svg.addEventListener('mousedown',e=>e.preventDefault());   // stops Shift+click on the page extending a text selection in the panels
   svg.addEventListener('pointerdown',e=>{
     if(S.editing) commitText();
     if(e.button!==0&&e.button!==1) return;
@@ -95,6 +112,8 @@ export function init(){
     const stack=hEl?[]:stackAt(e), pick=pickFrom(stack,e.altKey);
     const pan=()=>({kind:'pan',cx:e.clientX,cy:e.clientY,px:S.panX,py:S.panY});
     if(e.button===1||spaceHeld) drag=pan();
+    else if(hEl&&S.selection.size===1&&hEl.dataset.handle.startsWith('seg-'))
+      drag={kind:'segment',id:S.sel,i:+hEl.dataset.handle.slice(4),pts:routePoints(S.sel),snap:snapshot(),p0:p,moved:false};
     else if(hEl&&S.selection.size===1){
       const h=hEl.dataset.handle;
       drag={kind:h.length>2?'end':'resize',h,id:S.sel,orig:S.elById[S.sel].cloneNode(true),snap:snapshot(),p0:p,moved:false};
@@ -112,7 +131,7 @@ export function init(){
       const ids=selIds().filter(id=>!isConnector(id));   // connections follow their shapes; they are not dragged on their own
       const again=wasSelected&&S.selection.size===1;   // a second click on the only selected object edits its text
       const base={pick,prev,stack,alt:e.altKey,again,collapse:wasSelected&&S.selection.size>1,p0:p,moved:false};
-      drag=ids.length?{...base,kind:'move',ids,lead:ids.includes(pick)?pick:ids[0],
+      drag=ids.length?{...base,kind:'move',ids,lead:ids.includes(pick)?pick:ids[0],bends:bendsAround(ids),
         orig:new Map(ids.map(id=>[id,S.elById[id].cloneNode(true)])),snap:snapshot()}:{...base,kind:'click'};
     }
     svg.setPointerCapture(e.pointerId); e.preventDefault();
@@ -126,6 +145,7 @@ export function init(){
     if(drag.kind==='click') return;
     if(drag.kind==='marquee'){ updateMarquee(drag,p); return; }
     if(drag.kind==='move'){ moveDrag(drag,dx,dy,e.altKey); return; }
+    if(drag.kind==='segment'){ dragSegment(drag,p,e.altKey); return; }
     if(drag.kind==='connect'){
       drawOverlay(); const c=centreOf(drag.from);
       $('overlay').appendChild(svgEl('line',{x1:c[0],y1:c[1],x2:p.px,y2:p.py,class:'ghost'})); return;

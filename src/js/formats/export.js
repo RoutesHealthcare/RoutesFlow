@@ -11,7 +11,7 @@ import {buildPaths, geomFor} from '../geometry.js';
 import {pageCtx, render} from '../render.js';
 import {listConnects} from '../connectors.js';
 import {SHAPES, TABLE, roleOf, tableParts} from '../shapes.js';
-import {connTag, edgeStyleOf, resolveType, userV} from '../flow/model.js';
+import {connTag, edgeStyleOf, resolveType, textPt, userV} from '../flow/model.js';
 import {ICON_DATA} from '../flow/language.js';
 
 export const FMT={
@@ -84,14 +84,19 @@ function visioElbow(el,sh){
   if(rs===2||rs===16) return false;
   return !!(ms&&/dynamic connector/i.test(ms.name||''))||(S.lines[el.getAttribute('ID')]||[]).flat().length>2;
 }
-/* The corners of a connector as drawn, without its two ends, in inches. Tiny jogs and points in the middle
-   of a straight run are dropped. */
+/* The corners of a connector as drawn, without its two ends, in inches. Visio draws a small arc where a line jumps
+   over another and keeps it in the line's geometry; any point that strays less than JOG from the straight run
+   between its neighbours is one of those (or a tiny jog) and is dropped. Corners that are nearly level are then
+   squared up so the line stays right-angled. */
+const JOG=0.06;   // inches
 function bendsOf(id){
-  const pts=(S.lines[id]||[]).flat().map(p=>[p[0]/PX,p[1]/PX]), tol=0.02, out=[];
-  for(const p of pts){ const q=out[out.length-1]; if(!q||Math.hypot(p[0]-q[0],p[1]-q[1])>tol) out.push(p); }
-  const level=(a,b)=>Math.abs(a[0]-b[0])<tol||Math.abs(a[1]-b[1])<tol;
-  const corners=out.filter((p,i)=>i>0&&i<out.length-1&&!(level(out[i-1],p)&&level(p,out[i+1])&&
-    (Math.abs(out[i-1][0]-out[i+1][0])<tol||Math.abs(out[i-1][1]-out[i+1][1])<tol)));
+  const pts=(S.lines[id]||[]).flat().map(p=>[p[0]/PX,p[1]/PX]);
+  const off=(p,a,b)=>distToPolyline([[a,b]],p[0],p[1]);
+  for(let removed=true;removed;){ removed=false;
+    for(let i=1;i<pts.length-1;i++) if(off(pts[i],pts[i-1],pts[i+1])<JOG){ pts.splice(i,1); removed=true; i--; } }
+  for(let i=1;i<pts.length;i++){ const a=pts[i-1], b=pts[i];
+    if(Math.abs(a[0]-b[0])<JOG) b[0]=a[0]; else if(Math.abs(a[1]-b[1])<JOG) b[1]=a[1]; }
+  const corners=pts.slice(1,-1);
   return corners.length?corners:null;
 }
 export function pageGraph(){
@@ -104,7 +109,7 @@ export function pageGraph(){
     if(is1D(sh)||!b||roleOf(el)==='key') continue;
     const kind=kindOf(el), icon=iconMaster(el), n={id,kind,x:b.x0/PX,y:b.y0/PX,w:(b.x1-b.x0)/PX,h:(b.y1-b.y0)/PX,
       fill:icon?null:colour(cellV(sh,'FillForegnd',null),null),line:icon?null:colour(cellV(sh,'LineColor',null),null),
-      textColour:icon?null:colour(rowV(sh,'Character','0','Color'),null)};
+      textColour:icon?null:colour(rowV(sh,'Character','0','Color'),null),size:textPt(sh)};
     if(kind==='table'){ const p=tableParts(el); n.label=p.header?shapeText(shapeCtx(p.header,null)):''; n.columns=p.rows.map(r=>shapeText(shapeCtx(r,null))); }
     else if(el.getAttribute('Type')==='Group') n.label=[shapeText(sh),...[...el.getElementsByTagNameNS(NS,'Shape')].map(c=>shapeText(shapeCtx(c,sh.mid)))].filter(Boolean).join('\n');
     else n.label=shapeText(sh);

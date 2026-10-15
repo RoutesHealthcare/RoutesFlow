@@ -5,7 +5,7 @@ import {render} from '../render.js';
 import {centreOf, connectsEl, refreshConnector, setConnector, setGlue} from '../connectors.js';
 import {SHAPES, buildConnector, buildShape, buildTable, ensureShapes, pxToIn, roleOf, setRole, tableParts} from '../shapes.js';
 import {layoutGraph} from '../layout.js';
-import {CONN, connName, edgeStyleOf, resolveType, setEdgeStyle, setUser, userV, weightOf} from './model.js';
+import {CONN, connName, edgeStyleOf, resolveType, setEdgeStyle, setTextPt, setUser, SHAPE_TEXT_PT, textPt, userV, weightOf} from './model.js';
 import {autoSizeMM, declObj, edgeStmt, keyStmt, shapeStmt, splitComment, tableH, uniqueFid} from './language.js';
 
 export const PAGE_MARGIN=15, LOOSE_GAP=10;   // mm
@@ -43,6 +43,7 @@ function applyShapeAttrs(el,a){
   if(a.stroke){ setCell(el,'LineColor',a.stroke); if(numEl(el,'LinePattern',1)===0) setCell(el,'LinePattern',1); }
   if(a.weight) setCell(el,'LineWeight',a.weight/72);
   if(a.icon) setUser(el,'FlowIcon',a.icon);
+  if(a.size) setTextPt(el,a.size);
   const tc=rowCellEl(el,'Character','0','Color'); if(a.text&&tc) tc.setAttribute('V',a.text);
 }
 function keyRows(ap){
@@ -125,7 +126,8 @@ export function modelPage(pi){
     else {
       s.label=shapeText(sh); const T=SHAPES[kind], diff=(v,d)=>v&&v.toUpperCase()!==String(d).toUpperCase()?v.toUpperCase():null;
       s.attrs={fill:T.bare?null:diff(colour(cellV(sh,'FillForegnd',null),null),T.fill||DEF.fill),stroke:T.bare?null:diff(colour(cellV(sh,'LineColor',null),null),DEF.line),
-        text:diff(colour(rowV(sh,'Character','0','Color'),null),T.textColour||DEF.text),weight:T.bare?null:weightOf(sh),icon:userV(el,'FlowIcon')||null};
+        text:diff(colour(rowV(sh,'Character','0','Color'),null),T.textColour||DEF.text),weight:T.bare?null:weightOf(sh),icon:userV(el,'FlowIcon')||null,
+        size:(pt=>pt&&Math.abs(pt-SHAPE_TEXT_PT)>0.01?pt:null)(textPt(sh))};
     }
     let fid=userV(el,'FlowId'); if(!fid){ fid=uniqueFid(s.label||kind,used); used.add(fid); setUser(el,'FlowId',fid); }
     s.id=fid; fidOf[el.getAttribute('ID')]=fid; shapes.push(s);

@@ -1,6 +1,6 @@
 /* ---------- graph model to statements (imports and Visio) ---------- */
 import {$, DEF, MM, NS, PRNS, RNS, S, XML_DECL, kid, kids, ser, toast} from './core.js';
-import {blankFiles, is1D, parsePackage, shapeCtx} from './visio-package.js';
+import {blankFiles, parsePackage} from './visio-package.js';
 import {SHAPES, roleOf} from './shapes.js';
 import {commitText} from './text-editor.js';
 import {downloadBlob} from './properties.js';
@@ -9,7 +9,7 @@ import {render} from './render.js';
 import {openImport} from './dialogs.js';
 import {IMPORTERS, detectFormat, unfence} from './formats/import.js';
 import {layoutGraph} from './layout.js';
-import {applyTags, MARKERS, setUser, userV, VISIO_CONFIRMED} from './flow/model.js';
+import {applyTags, MARKERS, setUser, SHAPE_TEXT_PT, userV, VISIO_CONFIRMED} from './flow/model.js';
 import {autoSizeMM, edgeStmt, FLOW_ID, FLOW_KINDS, iconStmt, keyStmt, pageStmt, shapeStmt, tableH, uniqueFid} from './flow/language.js';
 import {LOOSE_GAP, PAGE_MARGIN, geoMM} from './flow/sync.js';
 import {editDoc, loadText, setDirty} from './document.js';
@@ -29,13 +29,13 @@ export function graphStatements(g,{ox=PAGE_MARGIN,oy=PAGE_MARGIN,used=new Set(),
     const hex=v=>v&&/^#[0-9a-f]{6}$/i.test(v)?v.toUpperCase():null, T=SHAPES[kind];
     const attrs=n.keepAttrs||(kind==='table'?{}:{fill:hex(n.fill)&&hex(n.fill)!==(T.fill||DEF.fill).toUpperCase()?hex(n.fill):null,
       stroke:hex(n.line)&&hex(n.line)!==DEF.line.toUpperCase()?hex(n.line):null,text:hex(n.textColour)&&hex(n.textColour)!==(T.textColour||DEF.text).toUpperCase()?hex(n.textColour):null,
-      icon:n.iconRef||null});
+      icon:n.iconRef||null,size:n.size&&Math.abs(n.size-SHAPE_TEXT_PT)>0.01?n.size:null});
     lines.push(shapeStmt({id:ids.get(n.id),kind,label:n.label||'',columns:kind==='table'?(n.columns&&n.columns.length?n.columns:['column']):null,place,attrs}));
   }
   for(const e of g.edges){
     const from=ids.get(e.from), to=ids.get(e.to); if(!from||!to||from===to) continue;
     const via=placed&&e.route==='elbow'&&e.via?e.via.map(([x,y])=>[ox+x*25.4,oy+y*25.4]):null;   // bends are in inches, like node positions
-    lines.push(edgeStmt({from,to,style:e.style||'solid',start:e.start||'none',end:e.end||(e.directed===false?'none':'arrow'),means:e.means||'',stroke:e.stroke||null,weight:e.weight||null,label:e.label||'',route:e.route||null,via}));
+    lines.push(edgeStmt({from,to,style:e.style||'solid',start:e.start||'none',end:e.end||(e.directed===false?'none':'arrow'),means:e.means||'',stroke:e.stroke||null,weight:e.weight||null,size:e.size||null,label:e.label||'',route:e.route||null,via}));
   }
   return {lines,ids};
 }

@@ -59,7 +59,7 @@ test.describe('icons',()=>{
     const iconLines=text.split('\n').filter(l=>l.startsWith('icon '));
     expect(iconLines).toHaveLength(3);   // two shapes share one picture
     for(const l of iconLines) expect(l).toMatch(/^icon \w+ "data:image\/svg\+xml;base64,[A-Za-z0-9+/]+=*"$/);
-    expect(text.match(/\[icon=\w+\]/g)).toHaveLength(4);
+    expect(text.match(/\[[^\]]*\bicon=\w+[^\]]*\]/g)).toHaveLength(4);
   });
 
   test('an icon shape can be selected and its label edited', async({app,page})=>{
@@ -87,5 +87,53 @@ test.describe('icons',()=>{
     await code.fill((await code.inputValue()).replace(/^flow 1$/m,'flow 1\nicon bad "data:text/html;base64,PHNjcmlwdD4="'));
     await code.blur();
     await expect(page.locator('#tpStatus')).toContainText('An icon picture must be an SVG or PNG data URI');
+  });
+});
+
+test.describe('text and editing after import',()=>{
+  test.beforeEach(async({app})=>{ await app.importFile(VISIO,'replace'); await app.page.click('#btnFit'); });
+
+  test('Visio text sizes are kept and words are not split to fit', async({app,page})=>{
+    const text=await app.flowText();
+    expect(text).toMatch(/: process "Step \d+" @ [\d.,x ]+\[[^\]]*size=8\]/);
+    const tspans=await page.locator('#layer tspan').allTextContents();
+    expect(tspans).toContain('Line one');
+    for(const t of tspans) expect(t).not.toMatch(/^(ep|tep) \d/);   // "Step 12" stays whole
+  });
+
+  test('lines are drawn beneath shapes', async({app,page})=>{
+    const kinds=await page.locator('#layer > [data-id]').evaluateAll(gs=>gs.map(g=>g.querySelector(':scope > path[fill="none"][stroke="transparent"]')?'line':'shape'));
+    expect(kinds.indexOf('shape')).toBeGreaterThan(kinds.lastIndexOf('line'));
+  });
+
+  test('moving a group of shapes moves the routes between them too', async({app,page})=>{
+    await page.keyboard.press('Control+a');
+    const before=(await app.flowText()).match(/via="[^"]+"/g);
+    await page.keyboard.press('Shift+ArrowRight');
+    const after=(await app.flowText()).match(/via="[^"]+"/g);
+    expect(after).toHaveLength(before.length);
+    const x=s=>+s.match(/via="(-?[\d.]+)/)[1];
+    for(let i=0;i<before.length;i++) expect(x(after[i])-x(before[i])).toBeCloseTo(10,0);   // Shift+arrow moves 10 mm
+  });
+
+  test('a segment of a right-angled line can be dragged, and undone', async({app,page})=>{
+    const target=await page.evaluate(()=>{
+      for(const g of document.querySelectorAll('#layer > [data-id]')){ const h=g.querySelector(':scope > path[fill="none"][stroke="transparent"]'); if(!h) continue;
+        const pts=[...h.getAttribute('d').matchAll(/[ML]\s*(-?[\d.]+)[ ,](-?[\d.]+)/g)].map(m=>[+m[1],+m[2]]); if(pts.length<4) continue;
+        const a=pts[1], c=pts[2], m=h.getScreenCTM(), x=(a[0]+c[0])/2, y=(a[1]+c[1])/2, sx=x*m.a+y*m.c+m.e, sy=x*m.b+y*m.d+m.f;
+        const clear=![...document.querySelectorAll('#layer > [data-id]')].some(o=>o!==g&&!o.querySelector(':scope > path[fill="none"][stroke="transparent"]')&&
+          (r=>sx>r.left-8&&sx<r.right+8&&sy>r.top-8&&sy<r.bottom+8)(o.getBoundingClientRect()));
+        if(clear) return {x:sx,y:sy}; } });
+    await page.mouse.click(target.x,target.y);
+    await expect(app.title).toHaveText('Connection');
+    const handle=page.locator('#overlay .handle.seg').first(); await expect(handle).toBeVisible();
+    const h=await app.centreOf(handle), across=(await handle.getAttribute('class')).includes('ns');
+    const before=await app.flowText();
+    await app.drag(h,across?{x:h.x,y:h.y+40}:{x:h.x+40,y:h.y});
+    const after=await app.flowText();
+    expect(after).not.toBe(before);
+    expect((await app.connectionLines()).every(l=>l.slice(1).every((p,i)=>Math.hypot(p[0]-l[i][0],p[1]-l[i][1])<8||Math.abs(p[0]-l[i][0])<0.5||Math.abs(p[1]-l[i][1])<0.5))).toBe(true);
+    await page.keyboard.press('Control+z');
+    expect(await app.flowText()).toBe(before);
   });
 });

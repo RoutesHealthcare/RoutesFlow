@@ -160,6 +160,12 @@ button:disabled{opacity:.55;cursor:default}
 .tour-target{outline:2px solid var(--sel)!important;outline-offset:2px;animation:tour-pulse 1.4s ease-in-out infinite}
 @keyframes tour-pulse{50%{outline-color:transparent}}
 @media (prefers-reduced-motion:reduce){.tour-target{animation:none}}
+#overlay .handle.seg{fill:var(--sel)}
+#overlay .handle.seg.ns{cursor:ns-resize}
+#overlay .handle.seg.ew{cursor:ew-resize}
+#overlay .handle.seg{fill:var(--sel)}
+#overlay .handle.seg.ns{cursor:ns-resize}
+#overlay .handle.seg.ew{cursor:ew-resize}
 </style>
 </head>
 <body>
@@ -287,6 +293,7 @@ button:disabled{opacity:.55;cursor:default}
   <div id="propsShape" hidden>
     <h2 id="selTitle">Shape</h2>
     <label id="textWrap">Text<textarea id="pText" rows="3"></textarea></label>
+    <label id="sizeWrap">Text size<select id="pSize"></select></label>
     <p class="notes" id="editHint">Or edit it on the page: click the shape again, press Enter or start typing.</p>
     <div class="row">
       <label id="fillWrap">Fill<input type="color" id="pFill"></label>
@@ -1018,6 +1025,16 @@ button:disabled{opacity:.55;cursor:default}
   var VISIO_END = { none: 0, arrow: 13 };
   var VISIO_CONFIRMED = new Set(Object.keys(VISIO_END));
   var visioEnd = (m) => m in VISIO_END ? VISIO_END[m] : m === "open" || m === "triangle" ? 13 : 0;
+  var SHAPE_TEXT_PT = 11;
+  var LINE_TEXT_PT = 9;
+  var textPt = (sh) => {
+    const v = parseFloat(rowV(sh, "Character", "0", "Size"));
+    return Number.isFinite(v) ? Math.round(v * 72 * 2) / 2 : null;
+  };
+  function setTextPt(el, pt) {
+    const c = rowCellEl(el, "Character", "0", "Size");
+    if (c && pt) c.setAttribute("V", String(pt / 72));
+  }
   var MAX_BENDS = 50;
   var viaToStr = (pts) => pts.map((p) => p.map((v) => Math.round(v * 10) / 10).join(",")).join(" ");
   function parseVia(s) {
@@ -1033,6 +1050,7 @@ button:disabled{opacity:.55;cursor:default}
     else delUser(el, "FlowMeans");
     if (e.route === "elbow") setUser(el, "FlowRoute", "elbow");
     else delUser(el, "FlowRoute");
+    setTextPt(el, e.size || LINE_TEXT_PT);
     if (e.route === "elbow" && e.via && e.via.length) setUser(el, "FlowVia", viaToStr(e.via));
     else delUser(el, "FlowVia");
     setCell(el, "BeginArrow", visioEnd(e.start));
@@ -1050,7 +1068,7 @@ button:disabled{opacity:.55;cursor:default}
   };
   function edgeStyleOf(el) {
     const sh = shapeCtx(el, null), lp = num(sh, "LinePattern", 1), stroke = colour(cellV(sh, "LineColor", null), null);
-    const route = userV(el, "FlowRoute") === "elbow" ? "elbow" : null, via = route && parseVia(userV(el, "FlowVia"));
+    const route = userV(el, "FlowRoute") === "elbow" ? "elbow" : null, via = route && parseVia(userV(el, "FlowVia")), pt = textPt(sh);
     return {
       style: lp === 3 ? "dotted" : lp >= 2 ? "dashed" : "solid",
       start: markerOf(el, sh, "Begin"),
@@ -1059,7 +1077,8 @@ button:disabled{opacity:.55;cursor:default}
       stroke: stroke && stroke !== DEF.line.toUpperCase() ? stroke : null,
       weight: weightOf(sh),
       route,
-      via: via && via.length ? via : null
+      via: via && via.length ? via : null,
+      size: pt && Math.abs(pt - LINE_TEXT_PT) > 0.01 ? pt : null
     };
   }
   function drawMarker(g, from, tip, kind, sz, col) {
@@ -1215,17 +1234,41 @@ button:disabled{opacity:.55;cursor:default}
     }
     insertSection(el, sec);
   }
-  function refreshConnector(cid) {
-    const pg = pageCtx(), el = S.elById[cid];
-    if (!el || el.parentNode !== kid(pg.doc.documentElement, "Shapes")) return;
-    const sh = shapeCtx(el, null), toPx = (x, y) => [x * PX, (pg.h - y) * PX], toIn = (q) => [q[0] / PX, pg.h - q[1] / PX];
+  function gluedEnds(cid) {
     const cons = listConnects().filter((c) => c.from === cid);
     let bTo = (cons.find((c) => c.fromCell === "BeginX") || {}).to || null, eTo = (cons.find((c) => c.fromCell === "EndX") || {}).to || null;
     if (bTo && !S.boxes[bTo]) bTo = null;
     if (eTo && !S.boxes[eTo]) eTo = null;
-    let b = toPx(num(sh, "BeginX", 0), num(sh, "BeginY", 0)), e = toPx(num(sh, "EndX", 0), num(sh, "EndY", 0));
+    return { bTo, eTo };
+  }
+  var mmToPx = ([x, y]) => [x / 25.4 * PX, y / 25.4 * PX];
+  var pxToMM = ([x, y]) => [x / PX * 25.4, y / PX * 25.4];
+  var bendsMM = (cid) => {
+    const el = S.elById[cid];
+    return el ? parseVia(userV(el, "FlowVia")) || [] : [];
+  };
+  function setBends(cid, via) {
+    const el = S.elById[cid];
+    if (!el) return;
+    if (via && via.length) setUser(el, "FlowVia", viaToStr(via));
+    else delUser(el, "FlowVia");
+  }
+  function clearBends(cid) {
+    setBends(cid, null);
+  }
+  function endsPx(el) {
+    const pg = pageCtx(), sh = shapeCtx(el, null), toPx = (x, y) => [x * PX, (pg.h - y) * PX];
+    return [toPx(num(sh, "BeginX", 0), num(sh, "BeginY", 0)), toPx(num(sh, "EndX", 0), num(sh, "EndY", 0))];
+  }
+  function refreshConnector(cid) {
+    const pg = pageCtx(), el = S.elById[cid];
+    if (!el || el.parentNode !== kid(pg.doc.documentElement, "Shapes")) return;
+    const toIn = (q) => [q[0] / PX, pg.h - q[1] / PX], { bTo, eTo } = gluedEnds(cid);
+    let [b, e] = endsPx(el);
     if (userV(el, "FlowRoute") === "elbow") {
-      const pts = elbowRoute(bTo, eTo, b, e, (parseVia(userV(el, "FlowVia")) || []).map(([x, y]) => [x / 25.4 * PX, y / 25.4 * PX]));
+      const via = bendsMM(cid).map(mmToPx), fitted = fitBends(via, bTo, eTo);
+      if (fitted.changed) setBends(cid, fitted.via.map(pxToMM));
+      const pts = elbowRoute(bTo, eTo, b, e, fitted.via);
       setConnector(el, toIn(pts[0]), toIn(pts[pts.length - 1]), bTo, eTo, pts.slice(1, -1).map(toIn));
       return;
     }
@@ -1234,6 +1277,42 @@ button:disabled{opacity:.55;cursor:default}
     if (eTo) e = anchorFor(eTo, bc);
     setConnector(el, toIn(b), toIn(e), bTo, eTo);
   }
+  function routePoints(cid) {
+    const el = S.elById[cid];
+    if (!el) return [];
+    const { bTo, eTo } = gluedEnds(cid), [b, e] = endsPx(el);
+    return elbowRoute(bTo, eTo, b, e, fitBends(bendsMM(cid).map(mmToPx), bTo, eTo).via);
+  }
+  function withChildren(ids) {
+    const out = /* @__PURE__ */ new Set();
+    for (const id of ids) {
+      const el = S.elById[id];
+      if (!el) continue;
+      out.add(id);
+      for (const s of el.getElementsByTagNameNS(NS, "Shape")) out.add(s.getAttribute("ID"));
+    }
+    return out;
+  }
+  var linesTouching = (moved) => new Set(listConnects().filter((c) => moved.has(c.to)).map((c) => c.from));
+  function bendsAround(ids) {
+    const m = /* @__PURE__ */ new Map();
+    for (const c of linesTouching(withChildren(ids))) m.set(c, bendsMM(c));
+    return m;
+  }
+  function refreshForMany(ids, shift) {
+    const moved = withChildren(ids);
+    for (const c of linesTouching(moved)) {
+      if (shift) {
+        const ends = listConnects().filter((x) => x.from === c), both = ends.length === 2 && ends.every((x) => moved.has(x.to));
+        const base = shift.from && shift.from.has(c) ? shift.from.get(c) : bendsMM(c);
+        setBends(c, both ? base.map(([x, y]) => [x + shift.dx * 25.4, y - shift.dy * 25.4]) : base);
+      }
+      refreshConnector(c);
+    }
+  }
+  var refreshFor = (id) => refreshForMany([id]);
+  var STUB = 12;
+  var CLEAR = 12;
   function pathMidpoint(pts) {
     const seg = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1])), total = seg.reduce((a, b) => a + b, 0);
     let left = total / 2;
@@ -1263,47 +1342,98 @@ button:disabled{opacity:.55;cursor:default}
     return p || anchorFor(id, toward);
   }
   var boxOf = (id, p) => id ? S.boxes[id] : { x0: p[0], x1: p[0], y0: p[1], y1: p[1] };
+  var level = (p, q) => Math.abs(p[0] - q[0]) < 0.5 || Math.abs(p[1] - q[1]) < 0.5;
+  function simplify(pts) {
+    const out = [];
+    for (const p of pts) {
+      const q = out[out.length - 1];
+      if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.5) out.push(p);
+    }
+    for (let i = out.length - 2; i > 0; i--) {
+      const a = out[i - 1], b = out[i], c = out[i + 1];
+      if (Math.abs(a[0] - b[0]) < 0.5 && Math.abs(b[0] - c[0]) < 0.5 || Math.abs(a[1] - b[1]) < 0.5 && Math.abs(b[1] - c[1]) < 0.5) out.splice(i, 1);
+    }
+    return out;
+  }
   function elbowRoute(bTo, eTo, b, e, via) {
-    if (via.length) return [bTo ? landOn(bTo, via[0]) : b, ...via, eTo ? landOn(eTo, via[via.length - 1]) : e];
-    const A = boxOf(bTo, b), B = boxOf(eTo, e), ca = bTo ? centreOf(bTo) : b, cb = eTo ? centreOf(eTo) : e;
-    const gapX = Math.max(B.x0 - A.x1, A.x0 - B.x1), gapY = Math.max(B.y0 - A.y1, A.y0 - B.y1);
-    if (gapX <= 0 && gapY <= 0) return [bTo ? anchorFor(bTo, cb) : b, eTo ? anchorFor(eTo, ca) : e];
-    const side = (id, p, toward) => id ? landOn(id, toward) : p;
-    if (gapX >= gapY) {
-      const lo2 = Math.max(A.y0, B.y0), hi2 = Math.min(A.y1, B.y1);
-      if (lo2 <= hi2) {
-        const y2 = (Math.max(lo2, Math.min(hi2, ca[1])) + Math.max(lo2, Math.min(hi2, cb[1]))) / 2;
-        return [side(bTo, b, [cb[0], y2]), side(eTo, e, [ca[0], y2])];
+    if (!via.length) return autoRoute(bTo, eTo, b, e);
+    return simplify([bTo ? landOn(bTo, via[0]) : b, ...via, eTo ? landOn(eTo, via[via.length - 1]) : e]);
+  }
+  function fitBends(via, bTo, eTo) {
+    const n = via.length;
+    if (!n) return { via, changed: false };
+    const v = via.map((p) => [...p]), A = bTo && S.boxes[bTo], B = eTo && S.boxes[eTo];
+    const inX = (p, r) => p[0] >= r.x0 && p[0] <= r.x1, inY = (p, r) => p[1] >= r.y0 && p[1] <= r.y1, vertical = (p, q) => Math.abs(p[0] - q[0]) < 0.5;
+    const firstAcross = n > 1 ? vertical(v[0], v[1]) : A ? inY(v[0], A) : B ? inX(v[0], B) : true;
+    const lastAcross = n > 1 ? vertical(v[n - 1], v[n - 2]) : !firstAcross;
+    if (A) {
+      const c = centreOf(bTo);
+      if (firstAcross) {
+        if (!inY(v[0], A)) v[0][1] = c[1];
+      } else if (!inX(v[0], A)) v[0][0] = c[0];
+    }
+    if (B) {
+      const c = centreOf(eTo), p = v[n - 1];
+      if (lastAcross) {
+        if (!inY(p, B)) p[1] = c[1];
+      } else if (!inX(p, B)) p[0] = c[0];
+    }
+    return { via: v, changed: v.some((p, i) => p[0] !== via[i][0] || p[1] !== via[i][1]) };
+  }
+  function obstacles(skip) {
+    const out = [];
+    for (const el of kids(kid(pageCtx().doc.documentElement, "Shapes"), "Shape")) {
+      const id = el.getAttribute("ID"), b = S.boxes[id];
+      if (!b || skip.includes(id) || is1D(shapeCtx(el, null))) continue;
+      out.push(b);
+    }
+    return out;
+  }
+  function crossings(p, q, boxes, pad = 2) {
+    let n = 0;
+    const x0 = Math.min(p[0], q[0]), x1 = Math.max(p[0], q[0]), y0 = Math.min(p[1], q[1]), y1 = Math.max(p[1], q[1]);
+    for (const r of boxes) if (x0 < r.x1 - pad && x1 > r.x0 + pad && y0 < r.y1 - pad && y1 > r.y0 + pad) n++;
+    return n;
+  }
+  function autoRoute(bTo, eTo, b, e) {
+    const A = boxOf(bTo, b), B = boxOf(eTo, e), skip = [bTo, eTo].filter(Boolean), boxes = obstacles(skip);
+    const sides = (id, r, p) => {
+      if (!id) return [{ p, out: p }];
+      const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
+      return [[[r.x0, cy], [-1, 0]], [[r.x1, cy], [1, 0]], [[cx, r.y0], [0, -1]], [[cx, r.y1], [0, 1]]].map(([q, d]) => {
+        const out = [q[0] + d[0] * STUB, q[1] + d[1] * STUB];
+        return { p: landOn(id, out), out };
+      });
+    };
+    const lo = [Math.min(A.x0, B.x0) - 200, Math.min(A.y0, B.y0) - 200], hi = [Math.max(A.x1, B.x1) + 200, Math.max(A.y1, B.y1) + 200];
+    const near = [...boxes.filter((r) => r.x1 > lo[0] && r.x0 < hi[0] && r.y1 > lo[1] && r.y0 < hi[1]), ...bTo ? [A] : [], ...eTo ? [B] : []];
+    const xs = near.flatMap((r) => [r.x0 - CLEAR, r.x1 + CLEAR]), ys = near.flatMap((r) => [r.y0 - CLEAR, r.y1 + CLEAR]);
+    const own = [...bTo ? [A] : [], ...eTo ? [B] : []];
+    let best = null, bestScore = Infinity;
+    for (const sa of sides(bTo, A, b)) for (const sb of sides(eTo, B, e)) {
+      const p = sa.out, q = sb.out, mids = [[]];
+      if (!level(p, q)) mids.push([[q[0], p[1]]], [[p[0], q[1]]]);
+      for (const x of [(p[0] + q[0]) / 2, ...xs]) mids.push([[x, p[1]], [x, q[1]]]);
+      for (const y of [(p[1] + q[1]) / 2, ...ys]) mids.push([[p[0], y], [q[0], y]]);
+      for (const m of mids) {
+        const pts = simplify([sa.p, p, ...m, q, sb.p]);
+        if (!pts.slice(1).every((c, i) => level(c, pts[i]))) continue;
+        let len = 0, hit = 0, back = 0;
+        for (let i = 1; i < pts.length; i++) {
+          const s0 = pts[i - 1], s1 = pts[i];
+          len += Math.abs(s1[0] - s0[0]) + Math.abs(s1[1] - s0[1]);
+          hit += crossings(s0, s1, boxes);
+          if (i > 1 && i < pts.length - 1) back += crossings(s0, s1, own, 1);
+        }
+        const score = len + 25 * (pts.length - 2) + 2e3 * hit + 3e3 * back;
+        if (score < bestScore) {
+          bestScore = score;
+          best = pts;
+        }
       }
-      const x = (B.x0 > A.x1 ? A.x1 + B.x0 : A.x0 + B.x1) / 2;
-      return [side(bTo, b, [x, ca[1]]), [x, ca[1]], [x, cb[1]], side(eTo, e, [x, cb[1]])];
     }
-    const lo = Math.max(A.x0, B.x0), hi = Math.min(A.x1, B.x1);
-    if (lo <= hi) {
-      const x = (Math.max(lo, Math.min(hi, ca[0])) + Math.max(lo, Math.min(hi, cb[0]))) / 2;
-      return [side(bTo, b, [x, cb[1]]), side(eTo, e, [x, ca[1]])];
-    }
-    const y = (B.y0 > A.y1 ? A.y1 + B.y0 : A.y0 + B.y1) / 2;
-    return [side(bTo, b, [ca[0], y]), [ca[0], y], [cb[0], y], side(eTo, e, [cb[0], y])];
+    return best || [b, e];
   }
-  function clearBends(cid) {
-    const el = S.elById[cid];
-    if (el) delUser(el, "FlowVia");
-  }
-  function refreshForMany(ids) {
-    const moved = /* @__PURE__ */ new Set();
-    for (const id of ids) {
-      const el = S.elById[id];
-      if (!el) continue;
-      moved.add(id);
-      for (const s of el.getElementsByTagNameNS(NS, "Shape")) moved.add(s.getAttribute("ID"));
-    }
-    for (const c of new Set(listConnects().filter((c2) => moved.has(c2.to)).map((c2) => c2.from))) {
-      clearBends(c);
-      refreshConnector(c);
-    }
-  }
-  var refreshFor = (id) => refreshForMany([id]);
 
   // src/js/layout.js
   function sizeFor(n) {
@@ -1476,8 +1606,8 @@ button:disabled{opacity:.55;cursor:default}
   };
   var FLOW_KINDS;
   var FLOW_ID = /^[A-Za-z_][\w-]*$/;
-  var SHAPE_ATTRS = ["fill", "stroke", "text", "weight", "icon"];
-  var EDGE_ATTRS = ["style", "start", "end", "stroke", "weight", "means", "route", "via"];
+  var SHAPE_ATTRS = ["fill", "stroke", "text", "weight", "size", "icon"];
+  var EDGE_ATTRS = ["style", "start", "end", "stroke", "weight", "size", "means", "route", "via"];
   var ICON_DATA = /^data:image\/(?:svg\+xml|png);base64,[A-Za-z0-9+/]+=*$/;
   var MAX_ICON_CHARS = 2e6;
   var iconStmt = (name, data) => `icon ${name} ${qs(data)}`;
@@ -1551,6 +1681,11 @@ button:disabled{opacity:.55;cursor:default}
         const w = +v;
         if (!(w >= 0.25 && w <= 12)) return fail("weight is a line thickness in points, from 0.25 to 12.");
         v = w;
+      }
+      if (k === "size") {
+        const z = +v;
+        if (!(z >= 4 && z <= 96)) return fail("size is a text size in points, from 4 to 96.");
+        v = z;
       }
       if (k === "style" && !LINE_STYLES[v]) return fail("style is solid, dashed or dotted.");
       if ((k === "start" || k === "end") && !MARKERS[v]) return fail(`${k} is one of: ${Object.keys(MARKERS).join(", ")}.`);
@@ -1772,8 +1907,8 @@ button:disabled{opacity:.55;cursor:default}
     } else tok = CONN[t].token;
     const elbow = e.route === "elbow";
     Object.assign(a, orderedAttrs(
-      { stroke: e.stroke, weight: e.weight, means: e.means, route: elbow ? "elbow" : null, via: elbow && e.via && e.via.length ? viaToStr(e.via) : null },
-      ["stroke", "weight", "means", "route", "via"]
+      { stroke: e.stroke, weight: e.weight, size: e.size, means: e.means, route: elbow ? "elbow" : null, via: elbow && e.via && e.via.length ? viaToStr(e.via) : null },
+      ["stroke", "weight", "size", "means", "route", "via"]
     ));
     let s = `${e.from} ${tok} ${e.to}`;
     const as = attrStr(a);
@@ -1899,14 +2034,24 @@ button:disabled{opacity:.55;cursor:default}
     if (rs === 2 || rs === 16) return false;
     return !!(ms && /dynamic connector/i.test(ms.name || "")) || (S.lines[el.getAttribute("ID")] || []).flat().length > 2;
   }
+  var JOG = 0.06;
   function bendsOf(id) {
-    const pts = (S.lines[id] || []).flat().map((p) => [p[0] / PX, p[1] / PX]), tol = 0.02, out = [];
-    for (const p of pts) {
-      const q = out[out.length - 1];
-      if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) > tol) out.push(p);
+    const pts = (S.lines[id] || []).flat().map((p) => [p[0] / PX, p[1] / PX]);
+    const off = (p, a, b) => distToPolyline([[a, b]], p[0], p[1]);
+    for (let removed = true; removed; ) {
+      removed = false;
+      for (let i = 1; i < pts.length - 1; i++) if (off(pts[i], pts[i - 1], pts[i + 1]) < JOG) {
+        pts.splice(i, 1);
+        removed = true;
+        i--;
+      }
     }
-    const level = (a, b) => Math.abs(a[0] - b[0]) < tol || Math.abs(a[1] - b[1]) < tol;
-    const corners = out.filter((p, i) => i > 0 && i < out.length - 1 && !(level(out[i - 1], p) && level(p, out[i + 1]) && (Math.abs(out[i - 1][0] - out[i + 1][0]) < tol || Math.abs(out[i - 1][1] - out[i + 1][1]) < tol)));
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      if (Math.abs(a[0] - b[0]) < JOG) b[0] = a[0];
+      else if (Math.abs(a[1] - b[1]) < JOG) b[1] = a[1];
+    }
+    const corners = pts.slice(1, -1);
     return corners.length ? corners : null;
   }
   function pageGraph() {
@@ -1930,7 +2075,8 @@ button:disabled{opacity:.55;cursor:default}
         h: (b.y1 - b.y0) / PX,
         fill: icon ? null : colour(cellV(sh, "FillForegnd", null), null),
         line: icon ? null : colour(cellV(sh, "LineColor", null), null),
-        textColour: icon ? null : colour(rowV(sh, "Character", "0", "Color"), null)
+        textColour: icon ? null : colour(rowV(sh, "Character", "0", "Color"), null),
+        size: textPt(sh)
       };
       if (kind === "table") {
         const p = tableParts(el);
@@ -2464,6 +2610,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     }
     if (a.weight) setCell(el, "LineWeight", a.weight / 72);
     if (a.icon) setUser(el, "FlowIcon", a.icon);
+    if (a.size) setTextPt(el, a.size);
     const tc = rowCellEl(el, "Character", "0", "Color");
     if (a.text && tc) tc.setAttribute("V", a.text);
   }
@@ -2629,7 +2776,8 @@ ${cells.map((c) => "        " + c).join("\n")}
           stroke: T.bare ? null : diff(colour(cellV(sh, "LineColor", null), null), DEF.line),
           text: diff(colour(rowV(sh, "Character", "0", "Color"), null), T.textColour || DEF.text),
           weight: T.bare ? null : weightOf(sh),
-          icon: userV(el, "FlowIcon") || null
+          icon: userV(el, "FlowIcon") || null,
+          size: ((pt) => pt && Math.abs(pt - SHAPE_TEXT_PT) > 0.01 ? pt : null)(textPt(sh))
         };
       }
       let fid = userV(el, "FlowId");
@@ -4329,7 +4477,8 @@ ${cells.map((c) => "        " + c).join("\n")}
         fill: hex(n.fill) && hex(n.fill) !== (T.fill || DEF.fill).toUpperCase() ? hex(n.fill) : null,
         stroke: hex(n.line) && hex(n.line) !== DEF.line.toUpperCase() ? hex(n.line) : null,
         text: hex(n.textColour) && hex(n.textColour) !== (T.textColour || DEF.text).toUpperCase() ? hex(n.textColour) : null,
-        icon: n.iconRef || null
+        icon: n.iconRef || null,
+        size: n.size && Math.abs(n.size - SHAPE_TEXT_PT) > 0.01 ? n.size : null
       });
       lines.push(shapeStmt({ id: ids.get(n.id), kind, label: n.label || "", columns: kind === "table" ? n.columns && n.columns.length ? n.columns : ["column"] : null, place: place2, attrs }));
     }
@@ -4337,7 +4486,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       const from = ids.get(e.from), to = ids.get(e.to);
       if (!from || !to || from === to) continue;
       const via = placed && e.route === "elbow" && e.via ? e.via.map(([x, y]) => [ox + x * 25.4, oy + y * 25.4]) : null;
-      lines.push(edgeStmt({ from, to, style: e.style || "solid", start: e.start || "none", end: e.end || (e.directed === false ? "none" : "arrow"), means: e.means || "", stroke: e.stroke || null, weight: e.weight || null, label: e.label || "", route: e.route || null, via }));
+      lines.push(edgeStmt({ from, to, style: e.style || "solid", start: e.start || "none", end: e.end || (e.directed === false ? "none" : "arrow"), means: e.means || "", stroke: e.stroke || null, weight: e.weight || null, size: e.size || null, label: e.label || "", route: e.route || null, via }));
     }
     return { lines, ids };
   }
@@ -4615,6 +4764,8 @@ ${cells.map((c) => "        " + c).join("\n")}
     const pt = num(sh, "LineWeight", 0.01) * 72, opts = [...$("pWeight").options].map((o) => +o.value);
     $("pWeight").value = String(opts.reduce((x, y) => Math.abs(y - pt) < Math.abs(x - pt) ? y : x));
     for (const w of ["textWrap", "lineWrap", "weightWrap"]) $(w).hidden = table || key;
+    $("sizeWrap").hidden = table || key;
+    showSize([el]);
     $("tableBtns").hidden = $("tableHint").hidden = !table;
     $("editHint").hidden = table || key;
     $("fillWrap").hidden = oneD || table || key;
@@ -4641,6 +4792,8 @@ ${cells.map((c) => "        " + c).join("\n")}
     for (const w of ["textWrap", "editHint", "sizeRow", "connBox", "tableBtns", "tableHint", "orderBtns"]) $(w).hidden = true;
     $("fillWrap").hidden = !els.some(fillable);
     $("lineWrap").hidden = $("weightWrap").hidden = !els.some(styleable);
+    $("sizeWrap").hidden = !els.some(styleable);
+    showSize(els.filter(styleable));
     $("pDelete").textContent = `Delete ${els.length} items`;
   }
   var styleable = (el) => roleOf(el) !== "key" && !isTable(el);
@@ -4672,7 +4825,24 @@ ${cells.map((c) => "        " + c).join("\n")}
       a.remove();
     }, 1500);
   }
+  var TEXT_SIZES = [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48];
+  function showSize(els) {
+    const pts = [...new Set(els.map((el) => textPt(shapeCtx(el, null)) || (is1D(shapeCtx(el, null)) ? LINE_TEXT_PT : SHAPE_TEXT_PT)))];
+    const sel = $("pSize");
+    for (const o of [...sel.options]) if (o.dataset.extra) o.remove();
+    if (pts.length === 1 && !TEXT_SIZES.includes(pts[0])) {
+      const o = new Option(pts[0] + " pt", pts[0]);
+      o.dataset.extra = "1";
+      sel.appendChild(o);
+    }
+    sel.value = pts.length === 1 ? String(pts[0]) : "";
+  }
   function init8() {
+    for (const pt of TEXT_SIZES) $("pSize").appendChild(new Option(pt + " pt", pt));
+    $("pSize").addEventListener("change", () => {
+      const v = +$("pSize").value;
+      if (v) styleSelection(styleable, (el) => setTextPt(el, v));
+    });
     $("pFill").addEventListener("change", () => {
       const v = $("pFill").value.toUpperCase();
       styleSelection(fillable, (el) => {
@@ -4925,6 +5095,9 @@ ${cells.map((c) => "        " + c).join("\n")}
       }
       hits.push({ id, rank, area, z: hits.length });
     }
+    if (hits.some((h) => h.rank === 1)) {
+      for (const h of hits) if (h.rank === 0) h.rank = 1.5;
+    }
     return hits.sort((a, b) => a.rank - b.rank || a.area - b.area || a.z - b.z).map((h) => h.id);
   }
   var pickFrom = (stack, alt) => (alt && stack.includes(S.sel) ? S.sel : stack[0]) ?? null;
@@ -4976,7 +5149,34 @@ ${cells.map((c) => "        " + c).join("\n")}
       setCell(el, "PinY", num(o, "PinY", 0) + B - bottom);
     }
     render();
-    refreshForMany(d.ids);
+    refreshForMany(d.ids, { dx: L - left, dy: B - bottom, from: d.bends });
+    render();
+  }
+  var SEG_STUB = 12;
+  function dragSegment(d, p, free) {
+    const pts = d.pts.map((q) => [...q]);
+    let i = d.i;
+    const axis = Math.abs(pts[i][1] - pts[i + 1][1]) < 0.5 ? 1 : 0;
+    const stub = (from, to) => {
+      const q = [...from];
+      q[1 - axis] += (Math.sign(to[1 - axis] - from[1 - axis]) || 1) * SEG_STUB;
+      return q;
+    };
+    if (i === pts.length - 2) {
+      const q = stub(pts[i + 1], pts[i]);
+      pts.splice(i + 1, 0, q, [...q]);
+    }
+    if (i === 0) {
+      const q = stub(pts[0], pts[1]);
+      pts.splice(1, 0, q, [...q]);
+      i += 2;
+    }
+    let v = axis ? p.py : p.px;
+    if (!free) v = snapIn(v / PX) * PX;
+    pts[i][axis] = v;
+    pts[i + 1][axis] = v;
+    setBends(d.id, pts.slice(1, -1).map(([x, y]) => [x / PX * 25.4, y / PX * 25.4]));
+    refreshConnector(d.id);
     render();
   }
   var spaceHeld = false;
@@ -4996,6 +5196,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       });
     });
     svg.addEventListener("pointerleave", () => setHover(null));
+    svg.addEventListener("mousedown", (e) => e.preventDefault());
     svg.addEventListener("pointerdown", (e) => {
       if (S.editing) commitText();
       if (e.button !== 0 && e.button !== 1) return;
@@ -5004,6 +5205,8 @@ ${cells.map((c) => "        " + c).join("\n")}
       const stack = hEl ? [] : stackAt(e), pick = pickFrom(stack, e.altKey);
       const pan = () => ({ kind: "pan", cx: e.clientX, cy: e.clientY, px: S.panX, py: S.panY });
       if (e.button === 1 || spaceHeld) drag = pan();
+      else if (hEl && S.selection.size === 1 && hEl.dataset.handle.startsWith("seg-"))
+        drag = { kind: "segment", id: S.sel, i: +hEl.dataset.handle.slice(4), pts: routePoints(S.sel), snap: snapshot(), p0: p, moved: false };
       else if (hEl && S.selection.size === 1) {
         const h = hEl.dataset.handle;
         drag = { kind: h.length > 2 ? "end" : "resize", h, id: S.sel, orig: S.elById[S.sel].cloneNode(true), snap: snapshot(), p0: p, moved: false };
@@ -5034,6 +5237,7 @@ ${cells.map((c) => "        " + c).join("\n")}
           kind: "move",
           ids,
           lead: ids.includes(pick) ? pick : ids[0],
+          bends: bendsAround(ids),
           orig: new Map(ids.map((id) => [id, S.elById[id].cloneNode(true)])),
           snap: snapshot()
         } : { ...base, kind: "click" };
@@ -5059,6 +5263,10 @@ ${cells.map((c) => "        " + c).join("\n")}
       }
       if (drag.kind === "move") {
         moveDrag(drag, dx, dy, e.altKey);
+        return;
+      }
+      if (drag.kind === "segment") {
+        dragSegment(drag, p, e.altKey);
         return;
       }
       if (drag.kind === "connect") {
@@ -5254,7 +5462,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     }
     if (movable.length) {
       render();
-      refreshForMany(movable);
+      refreshForMany(movable, { dx, dy });
     }
   }
   function cloneShape(el, doc, dx, dy) {
@@ -5313,21 +5521,39 @@ ${cells.map((c) => "        " + c).join("\n")}
     if (lp === 3) return `${w} ${w * 2.5}`;
     return `${w * 6} ${w * 3} ${w} ${w * 3}`;
   }
-  function wrap(t, maxW, fs) {
-    const maxC = Math.max(4, Math.floor(maxW / (fs * 0.5))), out = [];
+  var FONT = 'Calibri, "Segoe UI", Arial, sans-serif';
+  var measureCtx = null;
+  var widths = /* @__PURE__ */ new Map();
+  function textWidth(str, fs, bold) {
+    const key = `${bold ? 1 : 0}|${fs}|${str}`;
+    let w = widths.get(key);
+    if (w == null) {
+      measureCtx = measureCtx || document.createElement("canvas").getContext("2d");
+      measureCtx.font = `${bold ? "bold " : ""}${fs}px ${FONT}`;
+      w = measureCtx.measureText(str).width;
+      if (widths.size > 2e4) widths.clear();
+      widths.set(key, w);
+    }
+    return w;
+  }
+  function wrap(t, maxW, fs, bold = false) {
+    const out = [], fits = (s) => textWidth(s, fs, bold) <= maxW;
     for (const para of t.split("\n")) {
       let line = "";
       for (const w of para.split(/\s+/)) {
         if (!w) continue;
-        if (!line) line = w;
-        else if ((line + " " + w).length <= maxC) line += " " + w;
-        else {
-          out.push(line);
-          line = w;
+        const tryLine = line ? line + " " + w : w;
+        if (fits(tryLine)) {
+          line = tryLine;
+          continue;
         }
-        while (line.length > maxC) {
-          out.push(line.slice(0, maxC));
-          line = line.slice(maxC);
+        if (line) out.push(line);
+        line = w;
+        while (!fits(line) && line.length > 1) {
+          let n = line.length - 1;
+          while (n > 1 && !fits(line.slice(0, n))) n--;
+          out.push(line.slice(0, n));
+          line = line.slice(n);
         }
       }
       out.push(line);
@@ -5421,7 +5647,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       const ha = oneD ? 1 : parseInt(rowV(sh, "Paragraph", "0", "HorzAlign"), 10);
       const anchor = ha === 0 ? "start" : ha === 2 ? "end" : "middle", half = Math.max(Math.abs(tw) * scale / 2 - 4, 0);
       const tx = anchor === "start" ? c[0] - half : anchor === "end" ? c[0] + half : c[0];
-      drawLabel(g, wrap(txt, wpx, fs), tx, c[1], { fs, anchor, col, style, halo: oneD });
+      drawLabel(g, wrap(txt, wpx, fs, !!(style & 1)), tx, c[1], { fs, anchor, col, style, halo: oneD });
     }
   }
   function drawLabel(g, lines, tx, y, { fs, anchor = "middle", col, style = 0, halo = false, valign = "middle" }) {
@@ -5432,7 +5658,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       "font-size": fs,
       "text-anchor": anchor,
       fill: col,
-      "font-family": 'Calibri, "Segoe UI", Arial, sans-serif',
+      "font-family": FONT,
       "font-weight": style & 1 ? "bold" : null,
       "font-style": style & 2 ? "italic" : null,
       "text-decoration": style & 4 ? "underline" : null
@@ -5482,7 +5708,8 @@ ${cells.map((c) => "        " + c).join("\n")}
     S.lines = {};
     for (const s of pg.doc.getElementsByTagNameNS(NS, "Shape")) S.elById[s.getAttribute("ID")] = s;
     const base = [PX, 0, 0, -PX, 0, ph];
-    for (const el of kids(kid(pg.doc.documentElement, "Shapes"), "Shape")) {
+    const top = kids(kid(pg.doc.documentElement, "Shapes"), "Shape"), line = (el) => is1D(shapeCtx(el, null));
+    for (const el of [...top.filter(line), ...top.filter((el2) => !line(el2))]) {
       const g = svgEl("g", { "data-id": el.getAttribute("ID") });
       layer.appendChild(g);
       try {
@@ -5513,6 +5740,23 @@ ${cells.map((c) => "        " + c).join("\n")}
     if (S.selection.size !== 1 || !S.boxes[S.sel]) return;
     const b = S.boxes[S.sel], el = S.elById[S.sel], sh = shapeCtx(el, null), hs = 10 / S.zoom, pg = pageCtx();
     if (is1D(sh)) {
+      if (userV(el, "FlowRoute") === "elbow") {
+        const pts = routePoints(S.sel);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const a = pts[i], c = pts[i + 1];
+          if (Math.hypot(c[0] - a[0], c[1] - a[1]) * S.zoom < 16) continue;
+          const across = Math.abs(a[1] - c[1]) < 0.5;
+          ov.appendChild(svgEl("rect", {
+            x: (a[0] + c[0]) / 2 - hs * 0.45,
+            y: (a[1] + c[1]) / 2 - hs * 0.45,
+            width: hs * 0.9,
+            height: hs * 0.9,
+            rx: hs * 0.15,
+            class: "handle seg " + (across ? "ns" : "ew"),
+            "data-handle": "seg-" + i
+          }));
+        }
+      }
       for (const [h, X, Y] of [["begin", num(sh, "BeginX", 0), num(sh, "BeginY", 0)], ["end", num(sh, "EndX", 0), num(sh, "EndY", 0)]])
         ov.appendChild(svgEl("circle", { cx: X * PX, cy: (pg.h - Y) * PX, r: hs * 0.65, class: "handle", "data-handle": h }));
     } else if (canResize(el)) {

@@ -6,7 +6,7 @@ import {refreshFor} from './connectors.js';
 import {applySize, isTable, resizeTable, roleOf} from './shapes.js';
 import {deleteShapes, selEls, selIds} from './selection.js';
 import {plural} from './formats/export.js';
-import {resolveType, userV} from './flow/model.js';
+import {LINE_TEXT_PT, resolveType, setTextPt, SHAPE_TEXT_PT, textPt, userV} from './flow/model.js';
 import {commit} from './document.js';
 import {openAny} from './visio-io.js';
 import {moveStatement, updateConnProps} from './connection-props.js';
@@ -31,6 +31,7 @@ export function updateProps(){
   const pt=num(sh,'LineWeight',0.01)*72, opts=[...$('pWeight').options].map(o=>+o.value);
   $('pWeight').value=String(opts.reduce((x,y)=>Math.abs(y-pt)<Math.abs(x-pt)?y:x));
   for(const w of ['textWrap','lineWrap','weightWrap']) $(w).hidden=table||key;
+  $('sizeWrap').hidden=table||key; showSize([el]);
   $('tableBtns').hidden=$('tableHint').hidden=!table;
   $('editHint').hidden=table||key;
   $('fillWrap').hidden=oneD||table||key; $('connBox').hidden=!oneD; $('sizeRow').hidden=!canResize(el)||key;
@@ -49,6 +50,7 @@ function showMultiProps(){
   for(const w of ['textWrap','editHint','sizeRow','connBox','tableBtns','tableHint','orderBtns']) $(w).hidden=true;
   $('fillWrap').hidden=!els.some(fillable);
   $('lineWrap').hidden=$('weightWrap').hidden=!els.some(styleable);
+  $('sizeWrap').hidden=!els.some(styleable); showSize(els.filter(styleable));
   $('pDelete').textContent=`Delete ${els.length} items`;
 }
 const styleable=el=>roleOf(el)!=='key'&&!isTable(el);
@@ -65,8 +67,19 @@ export function downloadBlob(blob,name){
   document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
 }
 
+const TEXT_SIZES=[6,7,8,9,10,11,12,14,16,18,20,24,28,36,48];
+/* Shows the text size of the selection, or nothing when the selected items differ */
+function showSize(els){
+  const pts=[...new Set(els.map(el=>textPt(shapeCtx(el,null))||(is1D(shapeCtx(el,null))?LINE_TEXT_PT:SHAPE_TEXT_PT)))];
+  const sel=$('pSize'); for(const o of [...sel.options]) if(o.dataset.extra) o.remove();
+  if(pts.length===1&&!TEXT_SIZES.includes(pts[0])){ const o=new Option(pts[0]+' pt',pts[0]); o.dataset.extra='1'; sel.appendChild(o); }
+  sel.value=pts.length===1?String(pts[0]):'';
+}
+
 /* Wires this module to the page. main.js calls every init() once, in the order the original script ran. */
 export function init(){
+  for(const pt of TEXT_SIZES) $('pSize').appendChild(new Option(pt+' pt',pt));
+  $('pSize').addEventListener('change',()=>{ const v=+$('pSize').value; if(v) styleSelection(styleable,el=>setTextPt(el,v)); });
   $('pFill').addEventListener('change',()=>{ const v=$('pFill').value.toUpperCase();
     styleSelection(fillable,el=>{ setCell(el,'FillForegnd',v); setCell(el,'FillPattern',1); }); });
   $('pLine').addEventListener('change',()=>{ const v=$('pLine').value.toUpperCase();
