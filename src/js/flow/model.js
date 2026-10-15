@@ -86,10 +86,21 @@ export function delUser(el,name){ const r=userRow(el,name,false); if(r) r.remove
 const VISIO_END={none:0,arrow:13};
 export const VISIO_CONFIRMED=new Set(Object.keys(VISIO_END));
 const visioEnd=m=>m in VISIO_END?VISIO_END[m]:(m==='open'||m==='triangle'?13:0);
+/* Bend points of a right-angled connection, in mm from the page's top-left corner. In the text they read
+   via="40,20 40,60". parseVia gives [] for none and null for anything it cannot read. */
+const MAX_BENDS=50;
+export const viaToStr=pts=>pts.map(p=>p.map(v=>Math.round(v*10)/10).join(',')).join(' ');
+export function parseVia(s){
+  if(s==null||!String(s).trim()) return [];
+  const pts=String(s).trim().split(/\s+/).map(p=>p.split(',').map(Number));
+  return pts.length<=MAX_BENDS&&pts.every(p=>p.length===2&&p.every(Number.isFinite))?pts:null;
+}
 export function setEdgeStyle(el,e){
   setCell(el,'LinePattern',LINE_STYLES[e.style]||1);
   setUser(el,'FlowStart',e.start||'none'); setUser(el,'FlowEnd',e.end||'none');
   if(e.means) setUser(el,'FlowMeans',e.means); else delUser(el,'FlowMeans');
+  if(e.route==='elbow') setUser(el,'FlowRoute','elbow'); else delUser(el,'FlowRoute');
+  if(e.route==='elbow'&&e.via&&e.via.length) setUser(el,'FlowVia',viaToStr(e.via)); else delUser(el,'FlowVia');
   setCell(el,'BeginArrow',visioEnd(e.start)); setCell(el,'EndArrow',visioEnd(e.end));
   setCell(el,'LineColor',e.stroke||DEF.line); setCell(el,'LineWeight',(e.weight||1)/72);
 }
@@ -97,8 +108,9 @@ export function markerOf(el,sh,end){ const u=userV(el,end==='Begin'?'FlowStart':
 export const weightOf=sh=>{ const w=Math.round(num(sh,'LineWeight',1/72)*72*4)/4; return Math.abs(w-1)>0.01?w:null; };
 export function edgeStyleOf(el){
   const sh=shapeCtx(el,null), lp=num(sh,'LinePattern',1), stroke=colour(cellV(sh,'LineColor',null),null);
+  const route=userV(el,'FlowRoute')==='elbow'?'elbow':null, via=route&&parseVia(userV(el,'FlowVia'));
   return {style:lp===3?'dotted':lp>=2?'dashed':'solid',start:markerOf(el,sh,'Begin'),end:markerOf(el,sh,'End'),means:userV(el,'FlowMeans')||'',
-    stroke:stroke&&stroke!==DEF.line.toUpperCase()?stroke:null,weight:weightOf(sh)};
+    stroke:stroke&&stroke!==DEF.line.toUpperCase()?stroke:null,weight:weightOf(sh),route,via:via&&via.length?via:null};
 }
 /* draw a line end at tip, for a line arriving from 'from' */
 export function drawMarker(g,from,tip,kind,sz,col){

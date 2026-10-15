@@ -7,6 +7,13 @@ A browser-based diagram editor. Drawings are stored as `.flow` text and can be i
 Open `dist/flow-editor.html` in a browser. It is a single self-contained file, so it works straight from disk.
 A short guided tour opens on the first visit; the Tour button replays it.
 
+Visio drawings come in through **Import** (choosing a `.vsdx` with Open, or dropping one on the page, opens the
+Import dialog). Shapes keep their places and sizes, Visio's dynamic connectors keep their right-angled routes, and
+the first page can go on a new page, replace this page or sit beside what is there. Visio-only artwork is redrawn as
+the nearest editor shape. A connection's route (straight or right-angled) can be changed in the properties panel;
+in the text it is `route=elbow`, with any imported bend points as `via="x,y x,y"` in mm. Moving a connected shape
+drops its bend points and re-routes the line.
+
 ## Developing
 
 The source is split into an HTML page, a stylesheet and ES modules:
@@ -72,3 +79,5 @@ npm run test:ui                   # Playwright's interactive runner
 
 `tests/e2e/fixtures.js` holds a small page object (`FlowApp`) that drives the editor through its UI only:
 find shapes by their text, click, drag, read the selection title. Specs fail on any uncaught page error.
+`tests/fixtures/visio-flowchart.vsdx` is a real Visio flowchart with every label replaced by a placeholder and the
+author details removed.

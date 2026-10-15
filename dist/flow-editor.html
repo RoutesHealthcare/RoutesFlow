@@ -166,11 +166,11 @@ button:disabled{opacity:.55;cursor:default}
 <header class="bar">
   <span class="name">Flow editor</span>
   <button id="btnNew" title="New drawing">New</button>
-  <button id="btnOpen" title="Open a flow, Visio, Mermaid, PlantUML, DOT or draw.io file (Ctrl+O)">Open</button>
+  <button id="btnOpen" title="Open a .flow file, or a Mermaid, PlantUML, DOT or draw.io file as a new document (Ctrl+O)">Open</button>
   <button id="btnSave" title="Save as a .flow file (Ctrl+S)">Save</button>
   <button id="btnSaveAs" class="hide-sm" title="Save as (Ctrl+Shift+S)">Save as</button>
   <span class="sep"></span>
-  <button id="btnImport" title="Create shapes from Mermaid, PlantUML, Graphviz DOT or draw.io">Import</button>
+  <button id="btnImport" title="Bring in a Visio drawing, or create shapes from Mermaid, PlantUML, Graphviz DOT or draw.io">Import</button>
   <button id="btnExport" title="Export this page as Mermaid, PlantUML, Graphviz DOT or draw.io">Export</button>
   <span class="sep"></span>
   <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
@@ -184,7 +184,7 @@ button:disabled{opacity:.55;cursor:default}
   <button id="btnTour" title="Replay the guided tour">Tour</button>
   <span class="grow"></span>
   <span id="fileName"></span>
-  <input type="file" id="fileInput" accept=".flow,.vsdx,.vsdm,.mmd,.mermaid,.puml,.plantuml,.pu,.dot,.gv,.drawio,.xml,.md,.txt" hidden>
+  <input type="file" id="fileInput" accept=".flow,.mmd,.mermaid,.puml,.plantuml,.pu,.dot,.gv,.drawio,.xml,.md,.txt" hidden>
 </header>
 
 <nav class="palette" aria-label="Shapes">
@@ -260,7 +260,7 @@ button:disabled{opacity:.55;cursor:default}
     <p id="pageInfo"></p>
     <h2>Getting started</h2>
     <p>Drag a shape onto the page, or click one to drop it in the middle. To edit a shape's text, click it once to select it, then click it again, press Enter or just start typing (double-click works too). To select several shapes, drag a box around them on an empty part of the page, or Shift+click each one. Use Connect to draw lines between shapes; they stay attached when you move things.</p>
-    <p>The Text tab shows the diagram as text. Edit either side and the other follows. Save keeps the text as a .flow file; Export makes Visio, Mermaid, PlantUML, DOT or draw.io.</p>
+    <p>The Text tab shows the diagram as text. Edit either side and the other follows. Save keeps the text as a .flow file. Import brings in Visio drawings and Mermaid, PlantUML, DOT or draw.io; Export makes any of them.</p>
     <h2>Connections</h2>
     <label>New connections<select id="pNewConn"></select></label>
     <div class="btns one"><button id="pAddKey">Add a key to this page</button></div>
@@ -304,6 +304,7 @@ button:disabled{opacity:.55;cursor:default}
     </div>
     <div id="connBox" hidden>
       <label>Connection type<select id="pConn"></select></label>
+      <label>Route<select id="pRoute"><option value="straight">Straight</option><option value="elbow">Right-angled</option></select></label>
       <p id="pConnMeans" class="means"></p>
       <div class="row" id="pErRow" hidden><label>At the start<select id="pCardStart"></select></label><label>At the end<select id="pCardEnd"></select></label></div>
       <div id="pCustom" hidden>
@@ -369,11 +370,11 @@ button:disabled{opacity:.55;cursor:default}
       <option value="add">This page, beside what is there</option>
     </select></label>
   </div>
-  <textarea id="importText" spellcheck="false" aria-label="Diagram text" placeholder="Paste Mermaid, PlantUML, Graphviz DOT or draw.io XML here, or choose a file."></textarea>
+  <textarea id="importText" spellcheck="false" aria-label="Diagram text" placeholder="Paste Mermaid, PlantUML, Graphviz DOT or draw.io XML here, or choose a file (including a Visio .vsdx drawing)."></textarea>
   <p id="importNotes" class="notes" role="status"></p>
   <div class="dlgBtns">
     <button id="importFile">Choose file…</button>
-    <input type="file" id="importInput" hidden accept=".mmd,.mermaid,.md,.puml,.plantuml,.pu,.iuml,.dot,.gv,.drawio,.xml,.txt">
+    <input type="file" id="importInput" hidden accept=".vsdx,.vsdm,.mmd,.mermaid,.md,.puml,.plantuml,.pu,.iuml,.dot,.gv,.drawio,.xml,.txt">
     <span class="grow"></span>
     <button id="importCancel">Cancel</button><button id="importGo" class="primary">Import</button>
   </div>
@@ -450,6 +451,14 @@ button:disabled{opacity:.55;cursor:default}
     const d = new DOMParser().parseFromString(t, "application/xml");
     if (d.getElementsByTagName("parsererror").length) throw new Error("XML parse error");
     return d;
+  }
+  function distToPolyline(segs, x, y) {
+    let best = Infinity;
+    for (const s of segs || []) for (let i = 1; i < s.length; i++) {
+      const [ax, ay] = s[i - 1], [bx, by] = s[i], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy, t = L ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L)) : 0;
+      best = Math.min(best, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+    }
+    return best;
   }
   var snapIn = (v) => {
     const g = 2.5 * MM;
@@ -678,7 +687,7 @@ button:disabled{opacity:.55;cursor:default}
   var is1D = (sh) => cellV(sh, "BeginX", null) != null;
   function shapeText(sh) {
     const t = kid(sh.el, "Text") || kid(sh.mel, "Text");
-    return t ? t.textContent.replace(/\r/g, "").replace(/\n+$/, "") : "";
+    return t ? t.textContent.replace(/\r/g, "").replace(/[\u2028\u2029]/g, "\n").replace(/\n+$/, "") : "";
   }
   function setText(el, txt) {
     let t = kid(el, "Text");
@@ -898,120 +907,6 @@ button:disabled{opacity:.55;cursor:default}
     return mul([1, 0, 0, 1, num(sh, "PinX", 0), num(sh, "PinY", 0)], mul([c, s, -s, c, 0, 0], mul([fx, 0, 0, fy, 0, 0], [1, 0, 0, 1, -num(sh, "LocPinX", W / 2), -num(sh, "LocPinY", H / 2)])));
   }
 
-  // src/js/connectors.js
-  function connectsEl(doc, create) {
-    const root = doc.documentElement;
-    let c = kid(root, "Connects");
-    if (!c && create) {
-      c = doc.createElementNS(NS, "Connects");
-      const sh = kid(root, "Shapes");
-      root.insertBefore(c, sh ? sh.nextSibling : null);
-    }
-    return c;
-  }
-  function listConnects() {
-    return kids(connectsEl(pageCtx().doc, false), "Connect").map((c) => ({ el: c, from: c.getAttribute("FromSheet"), fromCell: c.getAttribute("FromCell"), to: c.getAttribute("ToSheet") }));
-  }
-  function setGlue(cid, end, toId) {
-    const doc = pageCtx().doc, ce = connectsEl(doc, true);
-    for (const c of kids(ce, "Connect")) if (c.getAttribute("FromSheet") === cid && c.getAttribute("FromCell") === end + "X") c.remove();
-    if (toId) ce.appendChild(mk(doc, "Connect", { FromSheet: cid, FromCell: end + "X", FromPart: end === "Begin" ? "9" : "12", ToSheet: toId, ToCell: "PinX", ToPart: "3" }));
-    if (!kids(ce, "Connect").length) ce.remove();
-  }
-  function raySeg(p, d, a, b) {
-    const e = [b[0] - a[0], b[1] - a[1]], den = d[0] * e[1] - d[1] * e[0];
-    if (Math.abs(den) < 1e-12) return null;
-    const w = [a[0] - p[0], a[1] - p[1]], t = (w[0] * e[1] - w[1] * e[0]) / den, u = (w[0] * d[1] - w[1] * d[0]) / den;
-    return u < -1e-9 || u > 1 + 1e-9 ? null : t;
-  }
-  var centreOf = (id) => {
-    const b = S.boxes[id];
-    return [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
-  };
-  function anchorFor(id, toward) {
-    const b = S.boxes[id], c = centreOf(id);
-    const polys = S.polys[id] || [[[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]]];
-    const d = [toward[0] - c[0], toward[1] - c[1]];
-    if (Math.hypot(d[0], d[1]) < 1e-6) return c;
-    let best = null;
-    for (const poly of polys) for (let i = 0; i < poly.length; i++) {
-      const t2 = raySeg(c, d, poly[i], poly[(i + 1) % poly.length]);
-      if (t2 != null && t2 > 1e-6 && (best == null || t2 < best)) best = t2;
-    }
-    if (best == null) return c;
-    const t = Math.min(best, 1);
-    return [c[0] + d[0] * t, c[1] + d[1] * t];
-  }
-  function setConnector(el, b, e, bTo, eTo) {
-    const doc = el.ownerDocument, L = Math.hypot(e[0] - b[0], e[1] - b[1]), ang = Math.atan2(e[1] - b[1], e[0] - b[0]);
-    if (bTo || eTo) {
-      setCell(el, "BegTrigger", bTo ? 2 : 0, bTo ? `_XFTRIGGER(Sheet.${bTo}!EventXFMod)` : void 0);
-      setCell(el, "EndTrigger", eTo ? 2 : 0, eTo ? `_XFTRIGGER(Sheet.${eTo}!EventXFMod)` : void 0);
-    } else {
-      delCell(el, "BegTrigger");
-      delCell(el, "EndTrigger");
-    }
-    setCell(el, "BeginX", b[0], bTo ? WALK : void 0);
-    setCell(el, "BeginY", b[1], bTo ? WALK : void 0);
-    setCell(el, "EndX", e[0], eTo ? WALK : void 0);
-    setCell(el, "EndY", e[1], eTo ? WALK : void 0);
-    setCell(el, "PinX", (b[0] + e[0]) / 2, "GUARD((BeginX+EndX)/2)");
-    setCell(el, "PinY", (b[1] + e[1]) / 2, "GUARD((BeginY+EndY)/2)");
-    setCell(el, "Width", L, "GUARD(SQRT((EndX-BeginX)^2+(EndY-BeginY)^2))");
-    setCell(el, "Height", 0);
-    setCell(el, "Angle", ang, "GUARD(ATAN2(EndY-BeginY,EndX-BeginX))");
-    setCell(el, "LocPinX", L / 2, "GUARD(Width*0.5)");
-    setCell(el, "LocPinY", 0, "GUARD(Height*0.5)");
-    setCell(el, "FlipX", 0);
-    setCell(el, "FlipY", 0);
-    for (const s of kids(el, "Section")) if (s.getAttribute("N") === "Geometry") s.remove();
-    const sec = mk(doc, "Section", { N: "Geometry", IX: "0" }, [
-      cellEl(doc, "NoFill", 1),
-      cellEl(doc, "NoLine", 0),
-      cellEl(doc, "NoShow", 0),
-      mk(doc, "Row", { T: "MoveTo", IX: "1" }, [cellEl(doc, "X", 0, "Width*0"), cellEl(doc, "Y", 0, "Height*0.5")]),
-      mk(doc, "Row", { T: "LineTo", IX: "2" }, [cellEl(doc, "X", L, "Width*1"), cellEl(doc, "Y", 0, "Height*0.5")])
-    ]);
-    const sh = shapeCtx(el, null);
-    if (sh.mel) {
-      for (const ms of kids(sh.mel, "Section")) if (ms.getAttribute("N") === "Geometry") {
-        const ix = ms.getAttribute("IX") || "0";
-        if (ix === "0") {
-          for (const r of kids(ms, "Row")) {
-            const rix = r.getAttribute("IX");
-            if (+rix > 2) sec.appendChild(mk(doc, "Row", { T: r.getAttribute("T"), IX: rix, Del: "1" }));
-          }
-        } else insertSection(el, mk(doc, "Section", { N: "Geometry", IX: ix, Del: "1" }));
-      }
-    }
-    insertSection(el, sec);
-  }
-  function refreshConnector(cid) {
-    const pg = pageCtx(), el = S.elById[cid];
-    if (!el || el.parentNode !== kid(pg.doc.documentElement, "Shapes")) return;
-    const sh = shapeCtx(el, null), toPx = (x, y) => [x * PX, (pg.h - y) * PX], toIn = (q) => [q[0] / PX, pg.h - q[1] / PX];
-    const cons = listConnects().filter((c) => c.from === cid);
-    let bTo = (cons.find((c) => c.fromCell === "BeginX") || {}).to || null, eTo = (cons.find((c) => c.fromCell === "EndX") || {}).to || null;
-    if (bTo && !S.boxes[bTo]) bTo = null;
-    if (eTo && !S.boxes[eTo]) eTo = null;
-    let b = toPx(num(sh, "BeginX", 0), num(sh, "BeginY", 0)), e = toPx(num(sh, "EndX", 0), num(sh, "EndY", 0));
-    const bc = bTo ? centreOf(bTo) : b, ec = eTo ? centreOf(eTo) : e;
-    if (bTo) b = anchorFor(bTo, ec);
-    if (eTo) e = anchorFor(eTo, bc);
-    setConnector(el, toIn(b), toIn(e), bTo, eTo);
-  }
-  function refreshForMany(ids) {
-    const moved = /* @__PURE__ */ new Set();
-    for (const id of ids) {
-      const el = S.elById[id];
-      if (!el) continue;
-      moved.add(id);
-      for (const s of el.getElementsByTagNameNS(NS, "Shape")) moved.add(s.getAttribute("ID"));
-    }
-    for (const c of new Set(listConnects().filter((c2) => moved.has(c2.to)).map((c2) => c2.from))) refreshConnector(c);
-  }
-  var refreshFor = (id) => refreshForMany([id]);
-
   // src/js/flow/model.js
   var MARKERS = {
     none: "None",
@@ -1123,12 +1018,23 @@ button:disabled{opacity:.55;cursor:default}
   var VISIO_END = { none: 0, arrow: 13 };
   var VISIO_CONFIRMED = new Set(Object.keys(VISIO_END));
   var visioEnd = (m) => m in VISIO_END ? VISIO_END[m] : m === "open" || m === "triangle" ? 13 : 0;
+  var MAX_BENDS = 50;
+  var viaToStr = (pts) => pts.map((p) => p.map((v) => Math.round(v * 10) / 10).join(",")).join(" ");
+  function parseVia(s) {
+    if (s == null || !String(s).trim()) return [];
+    const pts = String(s).trim().split(/\s+/).map((p) => p.split(",").map(Number));
+    return pts.length <= MAX_BENDS && pts.every((p) => p.length === 2 && p.every(Number.isFinite)) ? pts : null;
+  }
   function setEdgeStyle(el, e) {
     setCell(el, "LinePattern", LINE_STYLES[e.style] || 1);
     setUser(el, "FlowStart", e.start || "none");
     setUser(el, "FlowEnd", e.end || "none");
     if (e.means) setUser(el, "FlowMeans", e.means);
     else delUser(el, "FlowMeans");
+    if (e.route === "elbow") setUser(el, "FlowRoute", "elbow");
+    else delUser(el, "FlowRoute");
+    if (e.route === "elbow" && e.via && e.via.length) setUser(el, "FlowVia", viaToStr(e.via));
+    else delUser(el, "FlowVia");
     setCell(el, "BeginArrow", visioEnd(e.start));
     setCell(el, "EndArrow", visioEnd(e.end));
     setCell(el, "LineColor", e.stroke || DEF.line);
@@ -1144,13 +1050,16 @@ button:disabled{opacity:.55;cursor:default}
   };
   function edgeStyleOf(el) {
     const sh = shapeCtx(el, null), lp = num(sh, "LinePattern", 1), stroke = colour(cellV(sh, "LineColor", null), null);
+    const route = userV(el, "FlowRoute") === "elbow" ? "elbow" : null, via = route && parseVia(userV(el, "FlowVia"));
     return {
       style: lp === 3 ? "dotted" : lp >= 2 ? "dashed" : "solid",
       start: markerOf(el, sh, "Begin"),
       end: markerOf(el, sh, "End"),
       means: userV(el, "FlowMeans") || "",
       stroke: stroke && stroke !== DEF.line.toUpperCase() ? stroke : null,
-      weight: weightOf(sh)
+      weight: weightOf(sh),
+      route,
+      via: via && via.length ? via : null
     };
   }
   function drawMarker(g, from, tip, kind, sz, col) {
@@ -1204,6 +1113,198 @@ button:disabled{opacity:.55;cursor:default}
     TAG_TYPES = Object.fromEntries(Object.entries(CONN).filter(([t]) => t !== "er" && t !== "custom").map(([t, c]) => [c.name.toLowerCase(), t]));
   }
 
+  // src/js/connectors.js
+  function connectsEl(doc, create) {
+    const root = doc.documentElement;
+    let c = kid(root, "Connects");
+    if (!c && create) {
+      c = doc.createElementNS(NS, "Connects");
+      const sh = kid(root, "Shapes");
+      root.insertBefore(c, sh ? sh.nextSibling : null);
+    }
+    return c;
+  }
+  function listConnects() {
+    return kids(connectsEl(pageCtx().doc, false), "Connect").map((c) => ({ el: c, from: c.getAttribute("FromSheet"), fromCell: c.getAttribute("FromCell"), to: c.getAttribute("ToSheet") }));
+  }
+  function setGlue(cid, end, toId) {
+    const doc = pageCtx().doc, ce = connectsEl(doc, true);
+    for (const c of kids(ce, "Connect")) if (c.getAttribute("FromSheet") === cid && c.getAttribute("FromCell") === end + "X") c.remove();
+    if (toId) ce.appendChild(mk(doc, "Connect", { FromSheet: cid, FromCell: end + "X", FromPart: end === "Begin" ? "9" : "12", ToSheet: toId, ToCell: "PinX", ToPart: "3" }));
+    if (!kids(ce, "Connect").length) ce.remove();
+  }
+  function raySeg(p, d, a, b) {
+    const e = [b[0] - a[0], b[1] - a[1]], den = d[0] * e[1] - d[1] * e[0];
+    if (Math.abs(den) < 1e-12) return null;
+    const w = [a[0] - p[0], a[1] - p[1]], t = (w[0] * e[1] - w[1] * e[0]) / den, u = (w[0] * d[1] - w[1] * d[0]) / den;
+    return u < -1e-9 || u > 1 + 1e-9 ? null : t;
+  }
+  var centreOf = (id) => {
+    const b = S.boxes[id];
+    return [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
+  };
+  function anchorFor(id, toward) {
+    const b = S.boxes[id], c = centreOf(id);
+    const polys = S.polys[id] || [[[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]]];
+    const d = [toward[0] - c[0], toward[1] - c[1]];
+    if (Math.hypot(d[0], d[1]) < 1e-6) return c;
+    let best = null;
+    for (const poly of polys) for (let i = 0; i < poly.length; i++) {
+      const t2 = raySeg(c, d, poly[i], poly[(i + 1) % poly.length]);
+      if (t2 != null && t2 > 1e-6 && (best == null || t2 < best)) best = t2;
+    }
+    if (best == null) return c;
+    const t = Math.min(best, 1);
+    return [c[0] + d[0] * t, c[1] + d[1] * t];
+  }
+  function setConnector(el, b, e, bTo, eTo, bends = []) {
+    const doc = el.ownerDocument, L = Math.hypot(e[0] - b[0], e[1] - b[1]), ang = Math.atan2(e[1] - b[1], e[0] - b[0]);
+    if (bTo || eTo) {
+      setCell(el, "BegTrigger", bTo ? 2 : 0, bTo ? `_XFTRIGGER(Sheet.${bTo}!EventXFMod)` : void 0);
+      setCell(el, "EndTrigger", eTo ? 2 : 0, eTo ? `_XFTRIGGER(Sheet.${eTo}!EventXFMod)` : void 0);
+    } else {
+      delCell(el, "BegTrigger");
+      delCell(el, "EndTrigger");
+    }
+    setCell(el, "BeginX", b[0], bTo ? WALK : void 0);
+    setCell(el, "BeginY", b[1], bTo ? WALK : void 0);
+    setCell(el, "EndX", e[0], eTo ? WALK : void 0);
+    setCell(el, "EndY", e[1], eTo ? WALK : void 0);
+    setCell(el, "PinX", (b[0] + e[0]) / 2, "GUARD((BeginX+EndX)/2)");
+    setCell(el, "PinY", (b[1] + e[1]) / 2, "GUARD((BeginY+EndY)/2)");
+    setCell(el, "FlipX", 0);
+    setCell(el, "FlipY", 0);
+    for (const s of kids(el, "Section")) if (s.getAttribute("N") === "Geometry") s.remove();
+    const sec = mk(doc, "Section", { N: "Geometry", IX: "0" }, [cellEl(doc, "NoFill", 1), cellEl(doc, "NoLine", 0), cellEl(doc, "NoShow", 0)]);
+    let rowCount;
+    if (bends.length) {
+      const W = e[0] - b[0], H = e[1] - b[1], local = [[0, 0], ...[...bends, e].map((p) => [p[0] - b[0], p[1] - b[1]])];
+      setCell(el, "Width", W, "GUARD(EndX-BeginX)");
+      setCell(el, "Height", H, "GUARD(EndY-BeginY)");
+      setCell(el, "Angle", 0);
+      setCell(el, "LocPinX", W / 2, "GUARD(Width*0.5)");
+      setCell(el, "LocPinY", H / 2, "GUARD(Height*0.5)");
+      local.forEach((p, i) => sec.appendChild(mk(doc, "Row", { T: i ? "LineTo" : "MoveTo", IX: String(i + 1) }, [cellEl(doc, "X", p[0]), cellEl(doc, "Y", p[1])])));
+      const mid = pathMidpoint(local);
+      setCell(el, "TxtPinX", mid[0]);
+      setCell(el, "TxtPinY", mid[1]);
+      rowCount = local.length;
+    } else {
+      setCell(el, "Width", L, "GUARD(SQRT((EndX-BeginX)^2+(EndY-BeginY)^2))");
+      setCell(el, "Height", 0);
+      setCell(el, "Angle", ang, "GUARD(ATAN2(EndY-BeginY,EndX-BeginX))");
+      setCell(el, "LocPinX", L / 2, "GUARD(Width*0.5)");
+      setCell(el, "LocPinY", 0, "GUARD(Height*0.5)");
+      delCell(el, "TxtPinX");
+      delCell(el, "TxtPinY");
+      sec.appendChild(mk(doc, "Row", { T: "MoveTo", IX: "1" }, [cellEl(doc, "X", 0, "Width*0"), cellEl(doc, "Y", 0, "Height*0.5")]));
+      sec.appendChild(mk(doc, "Row", { T: "LineTo", IX: "2" }, [cellEl(doc, "X", L, "Width*1"), cellEl(doc, "Y", 0, "Height*0.5")]));
+      rowCount = 2;
+    }
+    const sh = shapeCtx(el, null);
+    if (sh.mel) {
+      for (const ms of kids(sh.mel, "Section")) if (ms.getAttribute("N") === "Geometry") {
+        const ix = ms.getAttribute("IX") || "0";
+        if (ix === "0") {
+          for (const r of kids(ms, "Row")) {
+            const rix = r.getAttribute("IX");
+            if (+rix > rowCount) sec.appendChild(mk(doc, "Row", { T: r.getAttribute("T"), IX: rix, Del: "1" }));
+          }
+        } else insertSection(el, mk(doc, "Section", { N: "Geometry", IX: ix, Del: "1" }));
+      }
+    }
+    insertSection(el, sec);
+  }
+  function refreshConnector(cid) {
+    const pg = pageCtx(), el = S.elById[cid];
+    if (!el || el.parentNode !== kid(pg.doc.documentElement, "Shapes")) return;
+    const sh = shapeCtx(el, null), toPx = (x, y) => [x * PX, (pg.h - y) * PX], toIn = (q) => [q[0] / PX, pg.h - q[1] / PX];
+    const cons = listConnects().filter((c) => c.from === cid);
+    let bTo = (cons.find((c) => c.fromCell === "BeginX") || {}).to || null, eTo = (cons.find((c) => c.fromCell === "EndX") || {}).to || null;
+    if (bTo && !S.boxes[bTo]) bTo = null;
+    if (eTo && !S.boxes[eTo]) eTo = null;
+    let b = toPx(num(sh, "BeginX", 0), num(sh, "BeginY", 0)), e = toPx(num(sh, "EndX", 0), num(sh, "EndY", 0));
+    if (userV(el, "FlowRoute") === "elbow") {
+      const pts = elbowRoute(bTo, eTo, b, e, (parseVia(userV(el, "FlowVia")) || []).map(([x, y]) => [x / 25.4 * PX, y / 25.4 * PX]));
+      setConnector(el, toIn(pts[0]), toIn(pts[pts.length - 1]), bTo, eTo, pts.slice(1, -1).map(toIn));
+      return;
+    }
+    const bc = bTo ? centreOf(bTo) : b, ec = eTo ? centreOf(eTo) : e;
+    if (bTo) b = anchorFor(bTo, ec);
+    if (eTo) e = anchorFor(eTo, bc);
+    setConnector(el, toIn(b), toIn(e), bTo, eTo);
+  }
+  function pathMidpoint(pts) {
+    const seg = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1])), total = seg.reduce((a, b) => a + b, 0);
+    let left = total / 2;
+    for (let i = 0; i < seg.length; i++) {
+      if (left <= seg[i] && seg[i] > 0) {
+        const t = left / seg[i], a = pts[i], c = pts[i + 1];
+        return [a[0] + (c[0] - a[0]) * t, a[1] + (c[1] - a[1]) * t];
+      }
+      left -= seg[i];
+    }
+    return pts[pts.length - 1];
+  }
+  function hitAlong(id, from, dir) {
+    const b = S.boxes[id], polys = S.polys[id] || [[[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]]];
+    let best = null;
+    for (const poly of polys) for (let i = 0; i < poly.length; i++) {
+      const t = raySeg(from, dir, poly[i], poly[(i + 1) % poly.length]);
+      if (t != null && t > 1e-6 && (best == null || t < best)) best = t;
+    }
+    return best == null ? null : [from[0] + dir[0] * best, from[1] + dir[1] * best];
+  }
+  function landOn(id, toward) {
+    const b = S.boxes[id], [x, y] = toward;
+    let p = null;
+    if (y >= b.y0 && y <= b.y1 && (x < b.x0 || x > b.x1)) p = hitAlong(id, toward, [x < b.x0 ? 1 : -1, 0]);
+    else if (x >= b.x0 && x <= b.x1 && (y < b.y0 || y > b.y1)) p = hitAlong(id, toward, [0, y < b.y0 ? 1 : -1]);
+    return p || anchorFor(id, toward);
+  }
+  var boxOf = (id, p) => id ? S.boxes[id] : { x0: p[0], x1: p[0], y0: p[1], y1: p[1] };
+  function elbowRoute(bTo, eTo, b, e, via) {
+    if (via.length) return [bTo ? landOn(bTo, via[0]) : b, ...via, eTo ? landOn(eTo, via[via.length - 1]) : e];
+    const A = boxOf(bTo, b), B = boxOf(eTo, e), ca = bTo ? centreOf(bTo) : b, cb = eTo ? centreOf(eTo) : e;
+    const gapX = Math.max(B.x0 - A.x1, A.x0 - B.x1), gapY = Math.max(B.y0 - A.y1, A.y0 - B.y1);
+    if (gapX <= 0 && gapY <= 0) return [bTo ? anchorFor(bTo, cb) : b, eTo ? anchorFor(eTo, ca) : e];
+    const side = (id, p, toward) => id ? landOn(id, toward) : p;
+    if (gapX >= gapY) {
+      const lo2 = Math.max(A.y0, B.y0), hi2 = Math.min(A.y1, B.y1);
+      if (lo2 <= hi2) {
+        const y2 = (Math.max(lo2, Math.min(hi2, ca[1])) + Math.max(lo2, Math.min(hi2, cb[1]))) / 2;
+        return [side(bTo, b, [cb[0], y2]), side(eTo, e, [ca[0], y2])];
+      }
+      const x = (B.x0 > A.x1 ? A.x1 + B.x0 : A.x0 + B.x1) / 2;
+      return [side(bTo, b, [x, ca[1]]), [x, ca[1]], [x, cb[1]], side(eTo, e, [x, cb[1]])];
+    }
+    const lo = Math.max(A.x0, B.x0), hi = Math.min(A.x1, B.x1);
+    if (lo <= hi) {
+      const x = (Math.max(lo, Math.min(hi, ca[0])) + Math.max(lo, Math.min(hi, cb[0]))) / 2;
+      return [side(bTo, b, [x, cb[1]]), side(eTo, e, [x, ca[1]])];
+    }
+    const y = (B.y0 > A.y1 ? A.y1 + B.y0 : A.y0 + B.y1) / 2;
+    return [side(bTo, b, [ca[0], y]), [ca[0], y], [cb[0], y], side(eTo, e, [cb[0], y])];
+  }
+  function clearBends(cid) {
+    const el = S.elById[cid];
+    if (el) delUser(el, "FlowVia");
+  }
+  function refreshForMany(ids) {
+    const moved = /* @__PURE__ */ new Set();
+    for (const id of ids) {
+      const el = S.elById[id];
+      if (!el) continue;
+      moved.add(id);
+      for (const s of el.getElementsByTagNameNS(NS, "Shape")) moved.add(s.getAttribute("ID"));
+    }
+    for (const c of new Set(listConnects().filter((c2) => moved.has(c2.to)).map((c2) => c2.from))) {
+      clearBends(c);
+      refreshConnector(c);
+    }
+  }
+  var refreshFor = (id) => refreshForMany([id]);
+
   // src/js/formats/export.js
   var FMT = {
     mermaid: { name: "Mermaid flowchart", ext: "mmd", mime: "text/plain" },
@@ -1234,17 +1335,24 @@ button:disabled{opacity:.55;cursor:default}
     [/off-?page/i, "offPage"],
     [/circle|ellipse|on-?page/i, "ellipse"],
     [/cloud/i, "cloud"],
+    [/sql|database|data store/i, "database"],
     [/server/i, "server"],
-    [/user|person|actor/i, "user"]
+    [/user|person|actor/i, "user"],
+    [/web design|code|api\b/i, "api"],
+    [/ui ?ux|screen|monitor|browser|web page/i, "browser"]
   ];
+  var iconMaster = (el) => {
+    const sh = shapeCtx(el, null), ms = sh.mid && S.masters[sh.mid];
+    return el.getAttribute("Type") === "Group" && !!(ms && ms.name) && MASTER_KINDS.some(([re]) => re.test(ms.name));
+  };
   function kindOf(el) {
     const r = roleOf(el);
     if (r === "table" || SHAPES[r] && !/^table(Header|Row)$/.test(r)) return r;
-    if (el.getAttribute("Type") === "Group") return "process";
     const sh = shapeCtx(el, null), ms = sh.mid && S.masters[sh.mid];
     if (ms && ms.name) {
       for (const [re, k] of MASTER_KINDS) if (re.test(ms.name)) return k;
     }
+    if (el.getAttribute("Type") === "Group") return "process";
     if (num(sh, "LinePattern", 1) === 0 && num(sh, "FillPattern", 1) === 0) return "text";
     const W = num(sh, "Width", 1) || 1, H = num(sh, "Height", 1) || 1, paths = buildPaths(sh, W, H);
     if (!paths.some((p) => p.subs.length && (p.fill || p.line))) return "text";
@@ -1255,6 +1363,21 @@ button:disabled{opacity:.55;cursor:default}
       if ([[W / 2, 0], [W, H / 2], [W / 2, H], [0, H / 2]].every((m) => pts.some((q) => near(q, m[0], m[1])))) return "decision";
     }
     return "process";
+  }
+  function visioElbow(el, sh) {
+    const ms = sh.mid && S.masters[sh.mid], rs = num(sh, "ShapeRouteStyle", 0);
+    if (rs === 2 || rs === 16) return false;
+    return !!(ms && /dynamic connector/i.test(ms.name || "")) || (S.lines[el.getAttribute("ID")] || []).flat().length > 2;
+  }
+  function bendsOf(id) {
+    const pts = (S.lines[id] || []).flat().map((p) => [p[0] / PX, p[1] / PX]), tol = 0.02, out = [];
+    for (const p of pts) {
+      const q = out[out.length - 1];
+      if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) > tol) out.push(p);
+    }
+    const level = (a, b) => Math.abs(a[0] - b[0]) < tol || Math.abs(a[1] - b[1]) < tol;
+    const corners = out.filter((p, i) => i > 0 && i < out.length - 1 && !(level(out[i - 1], p) && level(p, out[i + 1]) && (Math.abs(out[i - 1][0] - out[i + 1][0]) < tol || Math.abs(out[i - 1][1] - out[i + 1][1]) < tol)));
+    return corners.length ? corners : null;
   }
   function pageGraph() {
     render();
@@ -1268,16 +1391,16 @@ button:disabled{opacity:.55;cursor:default}
     for (const el of top) {
       const sh = shapeCtx(el, null), id = el.getAttribute("ID"), b = S.boxes[id];
       if (is1D(sh) || !b || roleOf(el) === "key") continue;
-      const kind = kindOf(el), n = {
+      const kind = kindOf(el), icon = iconMaster(el), n = {
         id,
         kind,
         x: b.x0 / PX,
         y: b.y0 / PX,
         w: (b.x1 - b.x0) / PX,
         h: (b.y1 - b.y0) / PX,
-        fill: colour(cellV(sh, "FillForegnd", null), null),
-        line: colour(cellV(sh, "LineColor", null), null),
-        textColour: colour(rowV(sh, "Character", "0", "Color"), null)
+        fill: icon ? null : colour(cellV(sh, "FillForegnd", null), null),
+        line: icon ? null : colour(cellV(sh, "LineColor", null), null),
+        textColour: icon ? null : colour(rowV(sh, "Character", "0", "Color"), null)
       };
       if (kind === "table") {
         const p = tableParts(el);
@@ -1301,16 +1424,21 @@ button:disabled{opacity:.55;cursor:default}
       }
       return best;
     };
+    const connectors = top.filter((el) => is1D(shapeCtx(el, null)));
+    const endOf = (el, e, depth = 0) => {
+      const sh = shapeCtx(el, null), id = el.getAttribute("ID"), c = cons.find((c2) => c2.from === id && c2.fromCell === e + "X");
+      if (c && byId[topOf[c.to]]) return topOf[c.to];
+      const x = num(sh, e + "X", NaN), y = pg.h - num(sh, e + "Y", NaN);
+      const n = nodeAt(x, y);
+      if (n || depth) return n;
+      const onto = connectors.find((o) => o !== el && distToPolyline(S.lines[o.getAttribute("ID")], x * PX, y * PX) <= tol * PX);
+      return onto ? endOf(onto, "End", 1) : null;
+    };
     let loose = 0, loops = 0;
-    for (const el of top) {
+    for (const el of connectors) {
       const sh = shapeCtx(el, null), id = el.getAttribute("ID");
-      if (!is1D(sh)) continue;
-      const end = (e) => {
-        const c = cons.find((c2) => c2.from === id && c2.fromCell === e + "X");
-        if (c && byId[topOf[c.to]]) return topOf[c.to];
-        return nodeAt(num(sh, e + "X", NaN), pg.h - num(sh, e + "Y", NaN));
-      };
-      let from = end("Begin"), to = end("End");
+      if (Math.hypot(num(sh, "EndX", 0) - num(sh, "BeginX", 0), num(sh, "EndY", 0) - num(sh, "BeginY", 0)) < 1e-3) continue;
+      let from = endOf(el, "Begin"), to = endOf(el, "End");
       if (!from || !to) {
         loose++;
         continue;
@@ -1320,6 +1448,8 @@ button:disabled{opacity:.55;cursor:default}
         continue;
       }
       const st = edgeStyleOf(el);
+      if (!st.route && visioElbow(el, sh)) st.route = "elbow";
+      if (st.route === "elbow") st.via = bendsOf(id);
       g.edges.push({ from, to, label: shapeText(sh).trim(), ...st, directed: st.end !== "none" || st.start !== "none", both: st.start !== "none" && st.end !== "none" });
     }
     const fidOf = {};
@@ -1907,8 +2037,8 @@ ${cells.map((c) => "        " + c).join("\n")}
   var FLOW_KINDS;
   var FLOW_ID = /^[A-Za-z_][\w-]*$/;
   var SHAPE_ATTRS = ["fill", "stroke", "text", "weight"];
-  var EDGE_ATTRS = ["style", "start", "end", "stroke", "weight", "means"];
-  var qs = (s) => '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n") + '"';
+  var EDGE_ATTRS = ["style", "start", "end", "stroke", "weight", "means", "route", "via"];
+  var qs = (s) => '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n|[\u2028\u2029]/g, "\\n") + '"';
   var unescapeStr = (s) => s.replace(/\\(.)/g, (_, c) => c === "n" ? "\n" : c);
   var mmN = (v) => String(Math.round(v * 10) / 10);
   function readString(s, p) {
@@ -1981,6 +2111,11 @@ ${cells.map((c) => "        " + c).join("\n")}
       }
       if (k === "style" && !LINE_STYLES[v]) return fail("style is solid, dashed or dotted.");
       if ((k === "start" || k === "end") && !MARKERS[v]) return fail(`${k} is one of: ${Object.keys(MARKERS).join(", ")}.`);
+      if (k === "route" && v !== "straight" && v !== "elbow") return fail("route is straight or elbow.");
+      if (k === "via") {
+        v = parseVia(v);
+        if (!v) return fail('via lists bend points in mm from the top-left of the page, like via="40,20 40,60".');
+      }
       a[k] = typeof v === "string" && /^#/.test(v) ? v.toUpperCase() : v;
       rest = rest.replace(m[0], "");
     }
@@ -2183,7 +2318,11 @@ ${cells.map((c) => "        " + c).join("\n")}
       tok = "--";
       Object.assign(a, { style: e.style, start: e.start, end: e.end });
     } else tok = CONN[t].token;
-    Object.assign(a, orderedAttrs({ stroke: e.stroke, weight: e.weight, means: e.means }, ["stroke", "weight", "means"]));
+    const elbow = e.route === "elbow";
+    Object.assign(a, orderedAttrs(
+      { stroke: e.stroke, weight: e.weight, means: e.means, route: elbow ? "elbow" : null, via: elbow && e.via && e.via.length ? viaToStr(e.via) : null },
+      ["stroke", "weight", "means", "route", "via"]
+    ));
     let s = `${e.from} ${tok} ${e.to}`;
     const as = attrStr(a);
     if (as) s += " " + as;
@@ -2572,6 +2711,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     $("pStyle").value = st.style;
     $("pStart").value = st.start;
     $("pEnd").value = st.end;
+    $("pRoute").value = st.route || "straight";
     if (document.activeElement !== $("pMeans")) $("pMeans").value = st.means;
     $("pMeans").placeholder = CONN[t].means;
   }
@@ -2579,8 +2719,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     const el = selEl();
     if (!el || !is1D(shapeCtx(el, null))) return;
     const st = { ...edgeStyleOf(el), ...change };
-    S.newConn = { style: st.style, start: st.start, end: st.end };
-    $("pNewConn").value = resolveType(st) === "er" ? "er" : resolveType(st);
+    S.newConn = { style: st.style, start: st.start, end: st.end, route: st.route };
     commit(() => setEdgeStyle(el, st));
   };
   function moveStatement(el, front) {
@@ -2606,6 +2745,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     for (const id of ["pCardStart", "pCardEnd"]) $(id).addEventListener("change", () => restyle({ start: $("pCardStart").value, end: $("pCardEnd").value }));
     for (const id of ["pStyle", "pStart", "pEnd"]) $(id).addEventListener("change", () => restyle({ style: $("pStyle").value, start: $("pStart").value, end: $("pEnd").value }));
     $("pMeans").addEventListener("change", () => restyle({ means: $("pMeans").value.trim() }));
+    $("pRoute").addEventListener("change", () => restyle({ route: $("pRoute").value === "elbow" ? "elbow" : null, via: null }));
     $("pReverse").onclick = () => {
       const el = selEl();
       if (!el) return;
@@ -3663,6 +3803,175 @@ ${cells.map((c) => "        " + c).join("\n")}
     IMPORTERS = { mermaid: parseMermaid, plantuml: (t) => isActivityText(t) ? parseActivity(t) : parsePlantUml(t), activity: parseActivity, dot: parseDot, drawio: parseDrawio };
   }
 
+  // src/js/dialogs.js
+  var baseName = () => S.name.replace(/\.[^.]+$/, "") || "diagram";
+  function setNote(id, msg, isError) {
+    const n = $(id);
+    n.textContent = msg;
+    n.classList.toggle("error", !!isError);
+  }
+  function refreshExport() {
+    const fmt = $("exportFmt").value, f = FMT[fmt];
+    $("exportCopy").disabled = !!f.binary;
+    $("exportText").hidden = !!f.binary;
+    if (f.binary) {
+      $("exportText").value = "";
+      setNote("exportNotes", ["A Visio drawing is a binary file, so there is nothing to preview. Use Download to save it.", ...visioNotes()].join("\n"));
+      return;
+    }
+    try {
+      const g = pageGraph();
+      $("exportText").value = EXPORTERS[fmt](g);
+      const notes = fmt === "drawio" ? [] : ["Shapes, labels and arrows are kept. Positions, sizes and colours are not."];
+      setNote("exportNotes", [...notes, ...g.warnings].join("\n"));
+    } catch (e) {
+      console.error("Export failed", e);
+      $("exportText").value = "";
+      setNote("exportNotes", "Could not export: " + e.message, true);
+    }
+  }
+  function openExport() {
+    if (S.editing) commitText();
+    $("exportDlg").showModal();
+    refreshExport();
+  }
+  async function copyExport() {
+    const t = $("exportText").value;
+    if (!t) return;
+    try {
+      await navigator.clipboard.writeText(t);
+      toast("Copied to the clipboard.");
+    } catch (e) {
+      console.warn("Clipboard write was refused", e);
+      $("exportText").select();
+      toast("Copying was blocked here. The text is selected: press Ctrl+C to copy it.", 6e3);
+    }
+  }
+  async function downloadExport() {
+    const f = FMT[$("exportFmt").value], t = $("exportText").value;
+    if (f.binary) {
+      try {
+        downloadBlob(await buildVsdx(), baseName() + "." + f.ext);
+      } catch (e) {
+        console.error("Visio export failed", e);
+        setNote("exportNotes", "Could not make the Visio file: " + e.message, true);
+      }
+      return;
+    }
+    if (!t) return;
+    downloadBlob(new Blob([t], { type: f.mime }), baseName() + (f.suffix || "") + "." + f.ext);
+  }
+  var MAX_VISIO_BYTES = 5e7;
+  var isVisioName = (n) => /\.vsd[xm]$/i.test(n);
+  var visioFile = null;
+  function setVisio(f) {
+    visioFile = f;
+    $("importText").disabled = $("importFmt").disabled = !!f;
+    if (f) {
+      $("importText").value = "";
+      setNote("importNotes", `Visio drawing ${f.name} is ready. Choose where to put it, then press Import.`);
+    }
+  }
+  function openImport(file) {
+    if (S.editing) commitText();
+    setNote("importNotes", "");
+    setVisio(null);
+    if (file && file.name) {
+      if (file.size > MAX_VISIO_BYTES) {
+        toast("That Visio file is too large to import.");
+        return;
+      }
+      setVisio(file);
+    }
+    $("importDlg").showModal();
+    (file ? $("importGo") : $("importText")).focus();
+  }
+  async function runVisioImport() {
+    const dest = $("importDest").value, btn = $("importGo");
+    if (dest === "replace" && kids(kid(pageCtx().doc.documentElement, "Shapes"), "Shape").length && !confirm("Replace everything on this page? Undo will bring it back.")) return;
+    btn.disabled = true;
+    try {
+      await importVisio(await visioFile.arrayBuffer(), visioFile.name, dest);
+      $("importDlg").close();
+    } catch (e) {
+      console.error("Visio import failed", e);
+      setNote("importNotes", "Could not import: " + e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  async function runImport() {
+    if (visioFile) return runVisioImport();
+    let text = $("importText").value;
+    if (!text.trim()) {
+      setNote("importNotes", "Paste some text or choose a file first.", true);
+      return;
+    }
+    if (text.length > MAX_IMPORT_CHARS) {
+      setNote("importNotes", "That text is too large to import.", true);
+      return;
+    }
+    const btn = $("importGo");
+    btn.disabled = true;
+    try {
+      text = unfence(text);
+      if (isFlowText(text)) throw new Error("this is a flow document. Open it with Open instead.");
+      const fmt = $("importFmt").value === "auto" ? detectFormat(text) : $("importFmt").value;
+      if (!fmt) throw new Error("the format was not recognised. Choose it from the Format list.");
+      const g = await IMPORTERS[fmt](text), dest = $("importDest").value;
+      if (dest === "replace" && kids(kid(pageCtx().doc.documentElement, "Shapes"), "Shape").length && !confirm("Replace everything on this page? Undo will bring it back.")) return;
+      await importGraph(g, dest);
+      $("importDlg").close();
+      const used = fmt === "plantuml" ? isActivityText(text) ? FMT.activity.name : FMT.plantuml.name : FMT[fmt].name;
+      toast(`Imported ${plural(g.nodes.length, "shape")} and ${plural(g.edges.length, "connection")} from ${used}.` + (g.warnings.length ? " " + g.warnings.join(" ") : ""), g.warnings.length ? 1e4 : 4500);
+    } catch (e) {
+      console.error("Import failed", e);
+      setNote("importNotes", "Could not import: " + e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  function init6() {
+    for (const [k, f] of Object.entries(FMT)) $("exportFmt").appendChild(new Option(f.name, k));
+    for (const [k, f] of Object.entries(FMT)) if (!f.binary) $("importFmt").appendChild(new Option(k === "plantuml" ? "PlantUML (either style)" : f.name, k));
+    $("exportFmt").onchange = refreshExport;
+    $("exportCopy").onclick = copyExport;
+    $("exportDownload").onclick = downloadExport;
+    $("exportClose").onclick = () => $("exportDlg").close();
+    $("importFile").onclick = () => $("importInput").click();
+    $("importInput").addEventListener("change", async (e) => {
+      const f = e.target.files[0];
+      e.target.value = "";
+      if (!f) return;
+      if (/\.vsd$/i.test(f.name)) {
+        setNote("importNotes", "Older .vsd files need to be opened in Visio and saved as .vsdx first.", true);
+        return;
+      }
+      if (isVisioName(f.name)) {
+        if (f.size > MAX_VISIO_BYTES) setNote("importNotes", "That Visio file is too large to import.", true);
+        else setVisio(f);
+        return;
+      }
+      setVisio(null);
+      if (f.size > MAX_IMPORT_CHARS) {
+        setNote("importNotes", "That file is too large to import.", true);
+        return;
+      }
+      try {
+        $("importText").value = await f.text();
+        setNote("importNotes", `Loaded ${f.name}.`);
+      } catch (err) {
+        console.error("Could not read file", err);
+        setNote("importNotes", "Could not read that file: " + err.message, true);
+      }
+    });
+    $("importCancel").onclick = () => $("importDlg").close();
+    $("importDlg").addEventListener("close", () => setVisio(null));
+    $("importGo").onclick = runImport;
+    $("btnImport").onclick = () => openImport();
+    $("btnExport").onclick = openExport;
+  }
+
   // src/js/text-pane.js
   var TP = { open: false, pinned: false, mode: "flow", dirty: false, errors: [], timer: 0, lastTyped: 0, cur: -1 };
   var codeText;
@@ -3870,7 +4179,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       }
     });
   }
-  function init6() {
+  function init7() {
     codeText = $("codeText");
     codeHl = $("codeHl");
     codeGutter = $("codeGutter");
@@ -3977,7 +4286,8 @@ ${cells.map((c) => "        " + c).join("\n")}
     for (const e of g.edges) {
       const from = ids.get(e.from), to = ids.get(e.to);
       if (!from || !to || from === to) continue;
-      lines.push(edgeStmt({ from, to, style: e.style || "solid", start: e.start || "none", end: e.end || (e.directed === false ? "none" : "arrow"), means: e.means || "", stroke: e.stroke || null, weight: e.weight || null, label: e.label || "" }));
+      const via = placed && e.route === "elbow" && e.via ? e.via.map(([x, y]) => [ox + x * 25.4, oy + y * 25.4]) : null;
+      lines.push(edgeStmt({ from, to, style: e.style || "solid", start: e.start || "none", end: e.end || (e.directed === false ? "none" : "arrow"), means: e.means || "", stroke: e.stroke || null, weight: e.weight || null, label: e.label || "", route: e.route || null, via }));
     }
     return { lines, ids };
   }
@@ -4019,41 +4329,79 @@ ${cells.map((c) => "        " + c).join("\n")}
       editDoc(L.join("\n"), S.pi);
     }
   }
-  async function openVisio(buf, name) {
+  async function readVisio(buf) {
     let zip;
     try {
       zip = await JSZip.loadAsync(buf);
     } catch (_) {
       throw new Error("that is not a .vsdx package. Open older .vsd files in Visio and save them as .vsdx first.");
     }
-    const keep = { zip: S.zip, pages: S.pages, masters: S.masters, styles: S.styles, pi: S.pi };
+    const keep = { zip: S.zip, pages: S.pages, masters: S.masters, styles: S.styles, pi: S.pi }, out = [];
     S.zip = zip;
     try {
       await parsePackage();
-      const parts = ["flow 1", ""], used = /* @__PURE__ */ new Set();
-      let redrawn = 0;
       for (let i = 0; i < S.pages.length; i++) {
         S.pi = i;
         const pg = S.pages[i], g = pageGraph();
-        redrawn += kids(kid(pg.doc.documentElement, "Shapes"), "Shape").filter((el) => !is1D(shapeCtx(el, null)) && !roleOf(el)).length;
-        parts.push(pageStmt({ name: pg.name + (pg.bg ? " (background)" : ""), size: [pg.w * 25.4, pg.h * 25.4] }));
-        parts.push(...graphStatements(g, { ox: 0, oy: 0, used: /* @__PURE__ */ new Set(), relabel: true }).lines);
-        const key = kids(kid(pg.doc.documentElement, "Shapes"), "Shape").find((el) => roleOf(el) === "key");
-        if (key) {
-          const k = geoMM(key, pg);
-          parts.push(keyStmt({ title: userV(key, "FlowKeyTitle") || "Key", place: { x: k.x, y: k.y } }));
-        }
-        parts.push("");
+        const top = kids(kid(pg.doc.documentElement, "Shapes"), "Shape");
+        const redrawn = top.filter((el) => !is1D(shapeCtx(el, null)) && !roleOf(el)).length;
+        const key = top.find((el) => roleOf(el) === "key");
+        out.push({
+          name: pg.name + (pg.bg ? " (background)" : ""),
+          size: [pg.w * 25.4, pg.h * 25.4],
+          g,
+          redrawn,
+          key: key ? { title: userV(key, "FlowKeyTitle") || "Key", place: geoMM(key, pg) } : null
+        });
       }
-      S.zip = null;
-      loadText(parts.join("\n"), name.replace(/\.vsd[xm]$/i, "") + ".flow", null);
-      if (redrawn) toast(`Opened ${name}. ${plural(redrawn, "shape")} ${redrawn === 1 ? "was" : "were"} redrawn as the nearest editor shape; Visio-specific artwork and formatting are not kept.`, 9e3);
-      else toast("Opened " + name + ".");
-    } catch (e) {
+    } finally {
       Object.assign(S, keep);
-      throw e;
+      render();
     }
+    return out;
   }
+  async function importVisio(buf, name, dest) {
+    const pages = await readVisio(buf);
+    if (!pages.some((p) => p.g.nodes.length)) throw new Error("no shapes were found in that drawing.");
+    const ap2 = S.ast.pages[S.pi], used = new Set(ap2.shapes.map((d) => d.id));
+    const pageText = (p, opts) => {
+      const lines = graphStatements(p.g, { ox: 0, oy: 0, used: /* @__PURE__ */ new Set(), relabel: true, ...opts }).lines;
+      if (p.key) lines.push(keyStmt({ title: p.key.title, place: { x: p.key.place.x, y: p.key.place.y } }));
+      return lines;
+    };
+    const newPage = (p) => "\n" + pageStmt({ name: uniquePageName(p.name), size: p.size }) + "\n" + pageText(p).join("\n") + "\n";
+    const [first, ...rest] = pages;
+    let text = S.text, focus = S.pi;
+    if (dest === "replace") {
+      text = replacePageBody(text, ap2, pageText(first));
+      if (ap2.headerLine != null) {
+        const L = text.split("\n");
+        L[ap2.headerLine] = pageStmt({ name: ap2.name, size: first.size, direction: ap2.direction });
+        text = L.join("\n");
+      }
+    } else if (dest === "add") {
+      const built = S.built[S.pi];
+      let ox = 0;
+      if (built && built.size) ox = Math.max(...[...built.values()].map((b) => b.x + b.w)) + LOOSE_GAP * 2;
+      const L = text.split("\n");
+      let at = ap2.endLine;
+      while (at > (ap2.headerLine ?? -1) && !L[at].trim()) at--;
+      L.splice(at + 1, 0, ...pageText(first, { ox, used }));
+      text = L.join("\n");
+    } else {
+      text = text.replace(/\s*$/, "\n") + newPage(first);
+      focus = S.ast.pages.length;
+    }
+    for (const p of rest) text = text.replace(/\s*$/, "\n") + newPage(p);
+    editDoc(text, focus);
+    const redrawn = pages.reduce((n, p) => n + p.redrawn, 0), warnings = pages.flatMap((p) => p.g.warnings);
+    toast(`Imported ${name}${pages.length > 1 ? ` (${plural(pages.length, "page")})` : ""}. ${plural(redrawn, "shape")} ${redrawn === 1 ? "was" : "were"} redrawn as the nearest editor shape; Visio-only artwork and formatting are not kept.` + (warnings.length ? " " + warnings.join(" ") : ""), 9e3);
+  }
+  var uniquePageName = (base) => {
+    let n = base, i = 2;
+    while (S.ast.pages.some((p) => p.name === n)) n = `${base} (${i++})`;
+    return n;
+  };
   function vsdxFiles() {
     const V = `xmlns="${NS}" xmlns:r="${RNS}" xml:space="preserve"`, b = blankFiles(), files = {};
     for (const k of ["_rels/.rels", "docProps/core.xml", "docProps/app.xml", "visio/document.xml", "visio/_rels/document.xml.rels"]) files[k] = b[k];
@@ -4075,14 +4423,14 @@ ${cells.map((c) => "        " + c).join("\n")}
     for (const ap2 of S.ast.pages) for (const e of ap2.edges) for (const m of [e.start, e.end]) if (!VISIO_CONFIRMED.has(m)) used.add(MARKERS[m].toLowerCase());
     return used.size ? [`In Visio, these line ends show as a plain arrow or no end until Visio's arrowhead numbers are confirmed: ${[...used].join(", ")}. They are correct in this editor, draw.io and DOT.`] : [];
   }
-  var OPEN_TYPES = [{ description: "Diagrams", accept: { "text/plain": [".flow", ".mmd", ".mermaid", ".puml", ".plantuml", ".pu", ".dot", ".gv", ".drawio", ".md", ".txt"], "application/vnd.ms-visio.drawing": [".vsdx", ".vsdm"] } }];
+  var OPEN_TYPES = [{ description: "Diagrams", accept: { "text/plain": [".flow", ".mmd", ".mermaid", ".puml", ".plantuml", ".pu", ".dot", ".gv", ".drawio", ".md", ".txt"] } }];
   var SAVE_TYPES = [{ description: "Flow diagram", accept: { "text/plain": [".flow"] } }];
   var isFlowText = (t) => /^\s*(?:#[^\n]*\n\s*)*(?:flow\s+\d|page\s+")/i.test(t);
   async function openAny(file, handle) {
     const name = file.name, lower = name.toLowerCase();
     try {
       if (/\.vsd[xm]$/.test(lower)) {
-        await openVisio(await file.arrayBuffer(), name);
+        openImport(file);
         return;
       }
       if (/\.vsd$/.test(lower)) throw new Error("older .vsd files need to be opened in Visio and saved as .vsdx first.");
@@ -4242,7 +4590,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       a.remove();
     }, 1500);
   }
-  function init7() {
+  function init8() {
     $("pFill").addEventListener("change", () => {
       const v = $("pFill").value.toUpperCase();
       styleSelection(fillable, (el) => {
@@ -4446,7 +4794,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     if (!el || cancel) return;
     if (ta.value !== shapeText(shapeCtx(el, null))) commit(() => setText(el, ta.value));
   }
-  function init8() {
+  function init9() {
     ta = $("textEditor");
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
@@ -4475,15 +4823,6 @@ ${cells.map((c) => "        " + c).join("\n")}
     }
     return null;
   }
-  function distToLines(segs, x, y) {
-    let best = Infinity;
-    for (const s of segs || []) for (let i = 1; i < s.length; i++) {
-      const [ax, ay] = s[i - 1], [bx, by] = s[i], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
-      const t = L ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L)) : 0;
-      best = Math.min(best, Math.hypot(x - ax - t * dx, y - ay - t * dy));
-    }
-    return best;
-  }
   function stackAt(e) {
     const pt = toPage(e), tol = HIT_TOL_PX / S.zoom, seen2 = /* @__PURE__ */ new Set(), hits = [];
     for (const n of document.elementsFromPoint(e.clientX, e.clientY)) {
@@ -4494,7 +4833,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       seen2.add(id);
       let rank, area = 0;
       if (isConnector(id)) {
-        if (!n.closest("text") && distToLines(S.lines[id], pt.px, pt.py) > tol) continue;
+        if (!n.closest("text") && distToPolyline(S.lines[id], pt.px, pt.py) > tol) continue;
         rank = 0;
       } else {
         const b = S.boxes[id];
@@ -4563,7 +4902,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     spaceHeld = v;
     stage.classList.toggle("panning", v);
   }
-  function init9() {
+  function init10() {
     hoverLayer = svgEl("g", { id: "hover" });
     $("view").insertBefore(hoverLayer, $("overlay"));
     svg.addEventListener("pointermove", (e) => {
@@ -4668,6 +5007,7 @@ ${cells.map((c) => "        " + c).join("\n")}
         const end = drag.h === "begin" ? "Begin" : "End";
         if (!drag.unglued) {
           setGlue(drag.id, end, null);
+          clearBends(drag.id);
           drag.unglued = true;
         }
         setCell(el, end + "X", p.x);
@@ -4876,7 +5216,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       S.selection = new Set(copies);
     });
   }
-  function init10() {
+  function init11() {
     S.selection = /* @__PURE__ */ new Set();
     S.hover = null;
     S.lines = {};
@@ -5343,7 +5683,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     setCell(el, "LocPinY", (H0 ? ly / H0 : 0.5) * H, null);
     recompute(el, W, H, W0 ? W / W0 : 1, H0 ? H / H0 : 1);
   }
-  function init11() {
+  function init12() {
     SHAPES = {
       process: { w: 1.5, h: 0.75, geo: fracGeo({ pts: RECT }) },
       decision: { w: 1.5, h: 1, geo: fracGeo({ pts: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5], [0.5, 0]] }) },
@@ -5391,7 +5731,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     $("toolConnect").setAttribute("aria-pressed", String(t === "connect"));
     stage.classList.toggle("connect", t === "connect");
   }
-  function init12() {
+  function init13() {
     $("toolConnect").onclick = () => setTool(S.tool === "connect" ? "select" : "connect");
     for (const b of document.querySelectorAll(".palette [data-kind]")) {
       b.onclick = () => {
@@ -5424,134 +5764,10 @@ ${cells.map((c) => "        " + c).join("\n")}
       }
       const f = e.dataTransfer.files && e.dataTransfer.files[0];
       if (f) {
-        if (S.dirty && !confirm("Discard unsaved changes and open " + f.name + "?")) return;
+        if (S.dirty && !/\.vsd[xm]$/i.test(f.name) && !confirm("Discard unsaved changes and open " + f.name + "?")) return;
         await openAny(f, null);
       }
     });
-  }
-
-  // src/js/dialogs.js
-  var baseName = () => S.name.replace(/\.[^.]+$/, "") || "diagram";
-  function setNote(id, msg, isError) {
-    const n = $(id);
-    n.textContent = msg;
-    n.classList.toggle("error", !!isError);
-  }
-  function refreshExport() {
-    const fmt = $("exportFmt").value, f = FMT[fmt];
-    $("exportCopy").disabled = !!f.binary;
-    $("exportText").hidden = !!f.binary;
-    if (f.binary) {
-      $("exportText").value = "";
-      setNote("exportNotes", ["A Visio drawing is a binary file, so there is nothing to preview. Use Download to save it.", ...visioNotes()].join("\n"));
-      return;
-    }
-    try {
-      const g = pageGraph();
-      $("exportText").value = EXPORTERS[fmt](g);
-      const notes = fmt === "drawio" ? [] : ["Shapes, labels and arrows are kept. Positions, sizes and colours are not."];
-      setNote("exportNotes", [...notes, ...g.warnings].join("\n"));
-    } catch (e) {
-      console.error("Export failed", e);
-      $("exportText").value = "";
-      setNote("exportNotes", "Could not export: " + e.message, true);
-    }
-  }
-  function openExport() {
-    if (S.editing) commitText();
-    $("exportDlg").showModal();
-    refreshExport();
-  }
-  async function copyExport() {
-    const t = $("exportText").value;
-    if (!t) return;
-    try {
-      await navigator.clipboard.writeText(t);
-      toast("Copied to the clipboard.");
-    } catch (e) {
-      console.warn("Clipboard write was refused", e);
-      $("exportText").select();
-      toast("Copying was blocked here. The text is selected: press Ctrl+C to copy it.", 6e3);
-    }
-  }
-  async function downloadExport() {
-    const f = FMT[$("exportFmt").value], t = $("exportText").value;
-    if (f.binary) {
-      try {
-        downloadBlob(await buildVsdx(), baseName() + "." + f.ext);
-      } catch (e) {
-        console.error("Visio export failed", e);
-        setNote("exportNotes", "Could not make the Visio file: " + e.message, true);
-      }
-      return;
-    }
-    if (!t) return;
-    downloadBlob(new Blob([t], { type: f.mime }), baseName() + (f.suffix || "") + "." + f.ext);
-  }
-  function openImport() {
-    if (S.editing) commitText();
-    setNote("importNotes", "");
-    $("importDlg").showModal();
-    $("importText").focus();
-  }
-  async function runImport() {
-    let text = $("importText").value;
-    if (!text.trim()) {
-      setNote("importNotes", "Paste some text or choose a file first.", true);
-      return;
-    }
-    if (text.length > MAX_IMPORT_CHARS) {
-      setNote("importNotes", "That text is too large to import.", true);
-      return;
-    }
-    const btn = $("importGo");
-    btn.disabled = true;
-    try {
-      text = unfence(text);
-      if (isFlowText(text)) throw new Error("this is a flow document. Open it with Open instead.");
-      const fmt = $("importFmt").value === "auto" ? detectFormat(text) : $("importFmt").value;
-      if (!fmt) throw new Error("the format was not recognised. Choose it from the Format list.");
-      const g = await IMPORTERS[fmt](text), dest = $("importDest").value;
-      if (dest === "replace" && kids(kid(pageCtx().doc.documentElement, "Shapes"), "Shape").length && !confirm("Replace everything on this page? Undo will bring it back.")) return;
-      await importGraph(g, dest);
-      $("importDlg").close();
-      const used = fmt === "plantuml" ? isActivityText(text) ? FMT.activity.name : FMT.plantuml.name : FMT[fmt].name;
-      toast(`Imported ${plural(g.nodes.length, "shape")} and ${plural(g.edges.length, "connection")} from ${used}.` + (g.warnings.length ? " " + g.warnings.join(" ") : ""), g.warnings.length ? 1e4 : 4500);
-    } catch (e) {
-      console.error("Import failed", e);
-      setNote("importNotes", "Could not import: " + e.message, true);
-    } finally {
-      btn.disabled = false;
-    }
-  }
-  function init13() {
-    for (const [k, f] of Object.entries(FMT)) $("exportFmt").appendChild(new Option(f.name, k));
-    for (const [k, f] of Object.entries(FMT)) if (!f.binary) $("importFmt").appendChild(new Option(k === "plantuml" ? "PlantUML (either style)" : f.name, k));
-    $("exportFmt").onchange = refreshExport;
-    $("exportCopy").onclick = copyExport;
-    $("exportDownload").onclick = downloadExport;
-    $("exportClose").onclick = () => $("exportDlg").close();
-    $("importFile").onclick = () => $("importInput").click();
-    $("importInput").addEventListener("change", async (e) => {
-      const f = e.target.files[0];
-      e.target.value = "";
-      if (!f) return;
-      if (f.size > MAX_IMPORT_CHARS) {
-        setNote("importNotes", "That file is too large to import.", true);
-        return;
-      }
-      try {
-        $("importText").value = await f.text();
-        setNote("importNotes", `Loaded ${f.name}.`);
-      } catch (err) {
-        console.error("Could not read file", err);
-        setNote("importNotes", "Could not read that file: " + err.message, true);
-      }
-    });
-    $("importCancel").onclick = () => $("importDlg").close();
-    $("importGo").onclick = runImport;
-    $("btnImport").onclick = openImport;
-    $("btnExport").onclick = openExport;
   }
 
   // src/js/toolbar.js
@@ -5837,7 +6053,7 @@ ${cells.map((c) => "        " + c).join("\n")}
   }
 
   // src/js/main.js
-  for (const init16 of [init11, init10, init8, init9, init12, init7, init2, init5, init13, init, init3, init4, init6, init14, init15]) init16();
+  for (const init16 of [init12, init11, init9, init10, init13, init8, init2, init5, init6, init, init3, init4, init7, init14, init15]) init16();
   newDoc();
   setPane(TP.open, TP.pinned);
   maybeStartTour();

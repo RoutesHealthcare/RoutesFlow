@@ -11,11 +11,11 @@
 <header class="bar">
   <span class="name">Flow editor</span>
   <button id="btnNew" title="New drawing">New</button>
-  <button id="btnOpen" title="Open a flow, Visio, Mermaid, PlantUML, DOT or draw.io file (Ctrl+O)">Open</button>
+  <button id="btnOpen" title="Open a .flow file, or a Mermaid, PlantUML, DOT or draw.io file as a new document (Ctrl+O)">Open</button>
   <button id="btnSave" title="Save as a .flow file (Ctrl+S)">Save</button>
   <button id="btnSaveAs" class="hide-sm" title="Save as (Ctrl+Shift+S)">Save as</button>
   <span class="sep"></span>
-  <button id="btnImport" title="Create shapes from Mermaid, PlantUML, Graphviz DOT or draw.io">Import</button>
+  <button id="btnImport" title="Bring in a Visio drawing, or create shapes from Mermaid, PlantUML, Graphviz DOT or draw.io">Import</button>
   <button id="btnExport" title="Export this page as Mermaid, PlantUML, Graphviz DOT or draw.io">Export</button>
   <span class="sep"></span>
   <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
@@ -29,7 +29,7 @@
   <button id="btnTour" title="Replay the guided tour">Tour</button>
   <span class="grow"></span>
   <span id="fileName"></span>
-  <input type="file" id="fileInput" accept=".flow,.vsdx,.vsdm,.mmd,.mermaid,.puml,.plantuml,.pu,.dot,.gv,.drawio,.xml,.md,.txt" hidden>
+  <input type="file" id="fileInput" accept=".flow,.mmd,.mermaid,.puml,.plantuml,.pu,.dot,.gv,.drawio,.xml,.md,.txt" hidden>
 </header>
 
 <nav class="palette" aria-label="Shapes">
@@ -105,7 +105,7 @@
     <p id="pageInfo"></p>
     <h2>Getting started</h2>
     <p>Drag a shape onto the page, or click one to drop it in the middle. To edit a shape's text, click it once to select it, then click it again, press Enter or just start typing (double-click works too). To select several shapes, drag a box around them on an empty part of the page, or Shift+click each one. Use Connect to draw lines between shapes; they stay attached when you move things.</p>
-    <p>The Text tab shows the diagram as text. Edit either side and the other follows. Save keeps the text as a .flow file; Export makes Visio, Mermaid, PlantUML, DOT or draw.io.</p>
+    <p>The Text tab shows the diagram as text. Edit either side and the other follows. Save keeps the text as a .flow file. Import brings in Visio drawings and Mermaid, PlantUML, DOT or draw.io; Export makes any of them.</p>
     <h2>Connections</h2>
     <label>New connections<select id="pNewConn"></select></label>
     <div class="btns one"><button id="pAddKey">Add a key to this page</button></div>
@@ -149,6 +149,7 @@
     </div>
     <div id="connBox" hidden>
       <label>Connection type<select id="pConn"></select></label>
+      <label>Route<select id="pRoute"><option value="straight">Straight</option><option value="elbow">Right-angled</option></select></label>
       <p id="pConnMeans" class="means"></p>
       <div class="row" id="pErRow" hidden><label>At the start<select id="pCardStart"></select></label><label>At the end<select id="pCardEnd"></select></label></div>
       <div id="pCustom" hidden>
@@ -214,11 +215,11 @@
       <option value="add">This page, beside what is there</option>
     </select></label>
   </div>
-  <textarea id="importText" spellcheck="false" aria-label="Diagram text" placeholder="Paste Mermaid, PlantUML, Graphviz DOT or draw.io XML here, or choose a file."></textarea>
+  <textarea id="importText" spellcheck="false" aria-label="Diagram text" placeholder="Paste Mermaid, PlantUML, Graphviz DOT or draw.io XML here, or choose a file (including a Visio .vsdx drawing)."></textarea>
   <p id="importNotes" class="notes" role="status"></p>
   <div class="dlgBtns">
     <button id="importFile">Choose file…</button>
-    <input type="file" id="importInput" hidden accept=".mmd,.mermaid,.md,.puml,.plantuml,.pu,.iuml,.dot,.gv,.drawio,.xml,.txt">
+    <input type="file" id="importInput" hidden accept=".vsdx,.vsdm,.mmd,.mermaid,.md,.puml,.plantuml,.pu,.iuml,.dot,.gv,.drawio,.xml,.txt">
     <span class="grow"></span>
     <button id="importCancel">Cancel</button><button id="importGo" class="primary">Import</button>
   </div>

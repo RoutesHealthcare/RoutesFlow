@@ -25,6 +25,6 @@ export function init(){
     const kind=e.dataTransfer.getData('text/x-shape');
     if(kind&&SHAPES[kind]){ const p=toPage(e); setTool('select'); commit(()=>{ S.sel=addShape(kind,p.x,p.y); }); return; }
     const f=e.dataTransfer.files&&e.dataTransfer.files[0];
-    if(f){ if(S.dirty&&!confirm('Discard unsaved changes and open '+f.name+'?')) return; await openAny(f,null); }
+    if(f){ if(S.dirty&&!/\.vsd[xm]$/i.test(f.name)&&!confirm('Discard unsaved changes and open '+f.name+'?')) return; await openAny(f,null); }   // a Visio drawing is imported, so nothing is discarded
   });
 }

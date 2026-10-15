@@ -26,6 +26,14 @@ export function cellEl(doc,n,v,f,u){ return mk(doc,'Cell',{N:n,V:fmtV(v),F:f||nu
 export function svgEl(n,a={}){ const e=document.createElementNS(SVGNS,n); for(const k in a) if(a[k]!=null) e.setAttribute(k,a[k]); return e; }
 export const ser=d=>new XMLSerializer().serializeToString(d.documentElement);
 export function parseXml(t){ const d=new DOMParser().parseFromString(t,'application/xml'); if(d.getElementsByTagName('parsererror').length) throw new Error('XML parse error'); return d; }
+/* Shortest distance from (x,y) to a set of polylines, each a list of [x,y] points */
+export function distToPolyline(segs,x,y){
+  let best=Infinity;
+  for(const s of segs||[]) for(let i=1;i<s.length;i++){
+    const [ax,ay]=s[i-1], [bx,by]=s[i], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy, t=L?Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/L)):0;
+    best=Math.min(best,Math.hypot(x-ax-t*dx,y-ay-t*dy)); }
+  return best;
+}
 export const snapIn=v=>{ const g=2.5*MM; return Math.round(v/g)*g; };
 let toastTimer;
 export function toast(msg,ms=4500){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),ms); }

@@ -100,7 +100,8 @@ export function rowV(sh,sec,ix,n){
   return c?c.getAttribute('V'):null;
 }
 export const is1D=sh=>cellV(sh,'BeginX',null)!=null;
-export function shapeText(sh){ const t=kid(sh.el,'Text')||kid(sh.mel,'Text'); return t?t.textContent.replace(/\r/g,'').replace(/\n+$/,''):''; }
+/* Visio marks soft line breaks with U+2028 and paragraphs with U+2029; both are plain line breaks here */
+export function shapeText(sh){ const t=kid(sh.el,'Text')||kid(sh.mel,'Text'); return t?t.textContent.replace(/\r/g,'').replace(/[\u2028\u2029]/g,'\n').replace(/\n+$/,''):''; }
 export function setText(el,txt){
   let t=kid(el,'Text');
   if(!t){ t=el.ownerDocument.createElementNS(NS,'Text'); el.insertBefore(t,[...el.children].find(x=>['Data1','Data2','Data3','ForeignData','Shapes'].includes(x.localName))||null); }

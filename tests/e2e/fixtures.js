@@ -6,6 +6,8 @@ const require=createRequire(import.meta.url);
 /* Served in place of the CDN copy so the tests run offline and Visio export works */
 const JSZIP=require.resolve('jszip/dist/jszip.min.js');
 export const EXAMPLE=resolve('tests/fixtures/connection-types.flow');
+/* An anonymised real-world Visio flowchart: dynamic connectors, icon masters, a line that ends on another line */
+export const VISIO=resolve('tests/fixtures/visio-flowchart.vsdx');
 
 /* Drives the editor through its UI only, so the same tests run against the source and the bundle */
 export class FlowApp{
@@ -14,6 +16,17 @@ export class FlowApp{
   /* A top-level shape whose text is exactly `text` */
   shape(text){ return this.shapes.filter({has:this.page.locator('tspan',{hasText:new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`)})}); }
   async open(file=EXAMPLE){ await this.page.setInputFiles('#fileInput',file); await expect(this.shapes.first()).toBeVisible(); }
+  /* Imports a file through the Import dialog; dest is new, replace or add */
+  async importFile(file,dest='replace'){
+    await this.page.click('#btnImport'); await this.page.setInputFiles('#importInput',file);
+    await this.page.selectOption('#importDest',dest); await this.page.click('#importGo');
+    await expect(this.page.locator('#importDlg')).toBeHidden();
+  }
+  /* Every connection's line as a list of [x,y] points */
+  async connectionLines(){
+    return this.page.locator('#layer > [data-id] > path[fill="none"][stroke="transparent"]').evaluateAll(ps=>ps.map(p=>
+      [...p.getAttribute('d').matchAll(/[ML]\s*(-?[\d.]+)[ ,](-?[\d.]+)/g)].map(m=>[+m[1],+m[2]])));
+  }
   async centreOf(locator){ const b=await locator.boundingBox(); if(!b) throw new Error('not visible'); return {x:b.x+b.width/2,y:b.y+b.height/2}; }
   async click(text,{modifiers=[]}={}){
     const c=await this.centreOf(this.shape(text));

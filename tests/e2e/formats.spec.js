@@ -25,7 +25,7 @@ test('a Visio export opens again and stays editable', async({app,page},testInfo)
   const [download]=await Promise.all([page.waitForEvent('download'),page.click('#exportDownload')]);
   const file=testInfo.outputPath('round-trip.vsdx'); await download.saveAs(file);
   await page.reload();
-  await app.open(file);
+  await app.importFile(file);
   await expect(app.shapes).toHaveCount(n);
   await app.click('Step A'); await app.click('Step A');
   await expect(app.textEditor).toBeVisible();

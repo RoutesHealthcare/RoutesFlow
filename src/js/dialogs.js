@@ -7,7 +7,7 @@ import {commitText} from './text-editor.js';
 import {downloadBlob} from './properties.js';
 import {EXPORTERS, FMT, MAX_IMPORT_CHARS, pageGraph, plural} from './formats/export.js';
 import {IMPORTERS, detectFormat, isActivityText, unfence} from './formats/import.js';
-import {buildVsdx, importGraph, isFlowText, visioNotes} from './visio-io.js';
+import {buildVsdx, importGraph, importVisio, isFlowText, visioNotes} from './visio-io.js';
 
 const baseName=()=>S.name.replace(/\.[^.]+$/,'')||'diagram';
 function setNote(id,msg,isError){ const n=$(id); n.textContent=msg; n.classList.toggle('error',!!isError); }
@@ -33,8 +33,29 @@ async function downloadExport(){
   if(!t) return;
   downloadBlob(new Blob([t],{type:f.mime}),baseName()+(f.suffix||'')+'.'+f.ext);
 }
-function openImport(){ if(S.editing) commitText(); setNote('importNotes',''); $('importDlg').showModal(); $('importText').focus(); }
+const MAX_VISIO_BYTES=50e6;
+const isVisioName=n=>/\.vsd[xm]$/i.test(n);
+let visioFile=null;   // a .vsdx waiting to be imported; it replaces the text box until the dialog closes
+function setVisio(f){
+  visioFile=f; $('importText').disabled=$('importFmt').disabled=!!f;
+  if(f){ $('importText').value=''; setNote('importNotes',`Visio drawing ${f.name} is ready. Choose where to put it, then press Import.`); }
+}
+/* file: optional .vsdx to import, for a Visio drawing that was opened or dropped on the page */
+export function openImport(file){
+  if(S.editing) commitText(); setNote('importNotes',''); setVisio(null);
+  if(file&&file.name){ if(file.size>MAX_VISIO_BYTES){ toast('That Visio file is too large to import.'); return; } setVisio(file); }
+  $('importDlg').showModal(); (file?$('importGo'):$('importText')).focus();
+}
+async function runVisioImport(){
+  const dest=$('importDest').value, btn=$('importGo');
+  if(dest==='replace'&&kids(kid(pageCtx().doc.documentElement,'Shapes'),'Shape').length&&!confirm('Replace everything on this page? Undo will bring it back.')) return;
+  btn.disabled=true;
+  try{ await importVisio(await visioFile.arrayBuffer(),visioFile.name,dest); $('importDlg').close(); }
+  catch(e){ console.error('Visio import failed',e); setNote('importNotes','Could not import: '+e.message,true); }
+  finally{ btn.disabled=false; }
+}
 async function runImport(){
+  if(visioFile) return runVisioImport();
   let text=$('importText').value;
   if(!text.trim()){ setNote('importNotes','Paste some text or choose a file first.',true); return; }
   if(text.length>MAX_IMPORT_CHARS){ setNote('importNotes','That text is too large to import.',true); return; }
@@ -63,11 +84,15 @@ export function init(){
   $('importFile').onclick=()=>$('importInput').click();
   $('importInput').addEventListener('change',async e=>{
     const f=e.target.files[0]; e.target.value=''; if(!f) return;
+    if(/\.vsd$/i.test(f.name)){ setNote('importNotes','Older .vsd files need to be opened in Visio and saved as .vsdx first.',true); return; }
+    if(isVisioName(f.name)){ if(f.size>MAX_VISIO_BYTES) setNote('importNotes','That Visio file is too large to import.',true); else setVisio(f); return; }
+    setVisio(null);
     if(f.size>MAX_IMPORT_CHARS){ setNote('importNotes','That file is too large to import.',true); return; }
     try{ $('importText').value=await f.text(); setNote('importNotes',`Loaded ${f.name}.`); }
     catch(err){ console.error('Could not read file',err); setNote('importNotes','Could not read that file: '+err.message,true); }
   });
   $('importCancel').onclick=()=>$('importDlg').close();
+  $('importDlg').addEventListener('close',()=>setVisio(null));
   $('importGo').onclick=runImport;
-  $('btnImport').onclick=openImport; $('btnExport').onclick=openExport;
+  $('btnImport').onclick=()=>openImport(); $('btnExport').onclick=openExport;
 }

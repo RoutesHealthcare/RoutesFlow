@@ -22,11 +22,11 @@ export function updateConnProps(el){
   $('pConnMeans').textContent=connMeans(st,m&&m.from&&labelOfFid(m.from),m&&m.to&&labelOfFid(m.to));
   $('pErRow').hidden=t!=='er'; $('pCustom').hidden=t!=='custom';
   $('pCardStart').value=CARDS.includes(st.start)?st.start:'one'; $('pCardEnd').value=CARDS.includes(st.end)?st.end:'zeroMany';
-  $('pStyle').value=st.style; $('pStart').value=st.start; $('pEnd').value=st.end;
+  $('pStyle').value=st.style; $('pStart').value=st.start; $('pEnd').value=st.end; $('pRoute').value=st.route||'straight';
   if(document.activeElement!==$('pMeans')) $('pMeans').value=st.means; $('pMeans').placeholder=CONN[t].means;
 }
 const restyle=change=>{ const el=selEl(); if(!el||!is1D(shapeCtx(el,null))) return; const st={...edgeStyleOf(el),...change};
-  S.newConn={style:st.style,start:st.start,end:st.end}; $('pNewConn').value=resolveType(st)==='er'?'er':resolveType(st);
+  S.newConn={style:st.style,start:st.start,end:st.end,route:st.route};   // new connections follow the last one changed $('pNewConn').value=resolveType(st)==='er'?'er':resolveType(st);
   commit(()=>setEdgeStyle(el,st)); };
 export function moveStatement(el,front){
   const fid=userV(el,'FlowId'), ap=S.ast.pages[S.pi], d=fid&&(fid==='__key'?ap.key:ap.byId.get(fid));
@@ -48,6 +48,7 @@ export function init(){
   for(const id of ['pCardStart','pCardEnd']) $(id).addEventListener('change',()=>restyle({start:$('pCardStart').value,end:$('pCardEnd').value}));
   for(const id of ['pStyle','pStart','pEnd']) $(id).addEventListener('change',()=>restyle({style:$('pStyle').value,start:$('pStart').value,end:$('pEnd').value}));
   $('pMeans').addEventListener('change',()=>restyle({means:$('pMeans').value.trim()}));
+  $('pRoute').addEventListener('change',()=>restyle({route:$('pRoute').value==='elbow'?'elbow':null,via:null}));
   $('pReverse').onclick=()=>{ const el=selEl(); if(!el) return; const id=el.getAttribute('ID');
     commit(()=>{ const cons=kids(connectsEl(pageCtx().doc,false),'Connect').filter(c=>c.getAttribute('FromSheet')===id);
       const b=cons.find(c=>c.getAttribute('FromCell')==='BeginX'), e=cons.find(c=>c.getAttribute('FromCell')==='EndX');

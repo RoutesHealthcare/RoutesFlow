@@ -1,8 +1,8 @@
 /* ---------- pointer interaction ---------- */
-import {$, PX, S, setCell, snapIn, stage, svg, svgEl, toast} from './core.js';
+import {$, distToPolyline, PX, S, setCell, snapIn, stage, svg, svgEl, toast} from './core.js';
 import {is1D, num, shapeCtx} from './visio-package.js';
 import {applyView, drawOverlay, pageCtx, render, zoomAt} from './render.js';
-import {centreOf, refreshConnector, refreshFor, refreshForMany, setGlue} from './connectors.js';
+import {centreOf, clearBends, refreshConnector, refreshFor, refreshForMany, setGlue} from './connectors.js';
 import {addConnector, applySize, roleOf} from './shapes.js';
 import {HIT_TOL_PX, isConnector, selIds, select, toggleSelection, topLevelIds} from './selection.js';
 import {commitText, editText} from './text-editor.js';
@@ -19,15 +19,6 @@ function hitShape(e,exclude){
   return null;
 }
 /* ---------- hit testing ---------- */
-function distToLines(segs,x,y){
-  let best=Infinity;
-  for(const s of segs||[]) for(let i=1;i<s.length;i++){
-    const [ax,ay]=s[i-1], [bx,by]=s[i], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy;
-    const t=L?Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/L)):0;
-    best=Math.min(best,Math.hypot(x-ax-t*dx,y-ay-t*dy));
-  }
-  return best;
-}
 /* Every top-level object under the pointer, best first: a connection the pointer is on, then shapes the
    pointer is inside (smallest first, so small shapes are not hidden by large ones), then shapes the
    pointer is only near. */
@@ -38,7 +29,7 @@ function stackAt(e){
     const id=g.dataset.id; if(seen.has(id)||!S.elById[id]) continue; seen.add(id);
     let rank, area=0;
     if(isConnector(id)){
-      if(!n.closest('text')&&distToLines(S.lines[id],pt.px,pt.py)>tol) continue;
+      if(!n.closest('text')&&distToPolyline(S.lines[id],pt.px,pt.py)>tol) continue;
       rank=0;
     } else {
       const b=S.boxes[id]; if(!b) continue;
@@ -152,7 +143,7 @@ export function init(){
       render(); refreshFor(drag.id);
     } else if(drag.kind==='end'){
       const end=drag.h==='begin'?'Begin':'End';
-      if(!drag.unglued){ setGlue(drag.id,end,null); drag.unglued=true; }
+      if(!drag.unglued){ setGlue(drag.id,end,null); clearBends(drag.id); drag.unglued=true; }
       setCell(el,end+'X',p.x); setCell(el,end+'Y',p.y);
       render(); refreshConnector(drag.id);
     }

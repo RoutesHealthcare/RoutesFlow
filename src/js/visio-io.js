@@ -5,6 +5,8 @@ import {SHAPES, roleOf} from './shapes.js';
 import {commitText} from './text-editor.js';
 import {downloadBlob} from './properties.js';
 import {MAX_IMPORT_CHARS, pageGraph, plural, xmlEsc} from './formats/export.js';
+import {render} from './render.js';
+import {openImport} from './dialogs.js';
 import {IMPORTERS, detectFormat, unfence} from './formats/import.js';
 import {layoutGraph} from './layout.js';
 import {MARKERS, VISIO_CONFIRMED, applyTags, userV} from './flow/model.js';
@@ -31,7 +33,8 @@ export function graphStatements(g,{ox=PAGE_MARGIN,oy=PAGE_MARGIN,used=new Set(),
   }
   for(const e of g.edges){
     const from=ids.get(e.from), to=ids.get(e.to); if(!from||!to||from===to) continue;
-    lines.push(edgeStmt({from,to,style:e.style||'solid',start:e.start||'none',end:e.end||(e.directed===false?'none':'arrow'),means:e.means||'',stroke:e.stroke||null,weight:e.weight||null,label:e.label||''}));
+    const via=placed&&e.route==='elbow'&&e.via?e.via.map(([x,y])=>[ox+x*25.4,oy+y*25.4]):null;   // bends are in inches, like node positions
+    lines.push(edgeStmt({from,to,style:e.style||'solid',start:e.start||'none',end:e.end||(e.directed===false?'none':'arrow'),means:e.means||'',stroke:e.stroke||null,weight:e.weight||null,label:e.label||'',route:e.route||null,via}));
   }
   return {lines,ids};
 }
@@ -60,28 +63,51 @@ export async function importGraph(g,dest){
 }
 
 /* ---------- Visio import and export ---------- */
-async function openVisio(buf,name){
+/* Reads every page of a .vsdx into the graph model, leaving the open document untouched */
+export async function readVisio(buf){
   let zip; try{ zip=await JSZip.loadAsync(buf); }catch(_){ throw new Error('that is not a .vsdx package. Open older .vsd files in Visio and save them as .vsdx first.'); }
-  const keep={zip:S.zip,pages:S.pages,masters:S.masters,styles:S.styles,pi:S.pi};
+  const keep={zip:S.zip,pages:S.pages,masters:S.masters,styles:S.styles,pi:S.pi}, out=[];
   S.zip=zip;
   try{
     await parsePackage();
-    const parts=['flow 1',''], used=new Set(); let redrawn=0;
     for(let i=0;i<S.pages.length;i++){
       S.pi=i; const pg=S.pages[i], g=pageGraph();
-      redrawn+=kids(kid(pg.doc.documentElement,'Shapes'),'Shape').filter(el=>!is1D(shapeCtx(el,null))&&!roleOf(el)).length;
-      parts.push(pageStmt({name:pg.name+(pg.bg?' (background)':''),size:[pg.w*25.4,pg.h*25.4]}));
-      parts.push(...graphStatements(g,{ox:0,oy:0,used:new Set(),relabel:true}).lines);
-      const key=kids(kid(pg.doc.documentElement,'Shapes'),'Shape').find(el=>roleOf(el)==='key');   // a key this editor wrote comes back as a key
-      if(key){ const k=geoMM(key,pg); parts.push(keyStmt({title:userV(key,'FlowKeyTitle')||'Key',place:{x:k.x,y:k.y}})); }
-      parts.push('');
+      const top=kids(kid(pg.doc.documentElement,'Shapes'),'Shape');
+      const redrawn=top.filter(el=>!is1D(shapeCtx(el,null))&&!roleOf(el)).length;
+      const key=top.find(el=>roleOf(el)==='key');   // a key this editor wrote comes back as a key
+      out.push({name:pg.name+(pg.bg?' (background)':''),size:[pg.w*25.4,pg.h*25.4],g,redrawn,
+        key:key?{title:userV(key,'FlowKeyTitle')||'Key',place:geoMM(key,pg)}:null});
     }
-    S.zip=null;
-    loadText(parts.join('\n'),name.replace(/\.vsd[xm]$/i,'')+'.flow',null);
-    if(redrawn) toast(`Opened ${name}. ${plural(redrawn,'shape')} ${redrawn===1?'was':'were'} redrawn as the nearest editor shape; Visio-specific artwork and formatting are not kept.`,9000);
-    else toast('Opened '+name+'.');
-  }catch(e){ Object.assign(S,keep); throw e; }
+  } finally { Object.assign(S,keep); render(); }   // reading draws each Visio page, so put the open page back
+  return out;
 }
+/* Imports a Visio drawing. Its first page goes where dest says (a new page, replacing this page, or beside what
+   is on this page); any further pages are added as new pages. Shapes keep their places and connectors their routes. */
+export async function importVisio(buf,name,dest){
+  const pages=await readVisio(buf);
+  if(!pages.some(p=>p.g.nodes.length)) throw new Error('no shapes were found in that drawing.');
+  const ap=S.ast.pages[S.pi], used=new Set(ap.shapes.map(d=>d.id));
+  const pageText=(p,opts)=>{ const lines=graphStatements(p.g,{ox:0,oy:0,used:new Set(),relabel:true,...opts}).lines;
+    if(p.key) lines.push(keyStmt({title:p.key.title,place:{x:p.key.place.x,y:p.key.place.y}})); return lines; };
+  const newPage=p=>'\n'+pageStmt({name:uniquePageName(p.name),size:p.size})+'\n'+pageText(p).join('\n')+'\n';
+  const [first,...rest]=pages; let text=S.text, focus=S.pi;
+  if(dest==='replace'){
+    text=replacePageBody(text,ap,pageText(first));
+    if(ap.headerLine!=null){ const L=text.split('\n'); L[ap.headerLine]=pageStmt({name:ap.name,size:first.size,direction:ap.direction}); text=L.join('\n'); }   // take the Visio page size too
+  }
+  else if(dest==='add'){
+    const built=S.built[S.pi]; let ox=0;
+    if(built&&built.size) ox=Math.max(...[...built.values()].map(b=>b.x+b.w))+LOOSE_GAP*2;
+    const L=text.split('\n'); let at=ap.endLine; while(at>(ap.headerLine??-1)&&!L[at].trim()) at--;
+    L.splice(at+1,0,...pageText(first,{ox,used})); text=L.join('\n');
+  } else { text=text.replace(/\s*$/,'\n')+newPage(first); focus=S.ast.pages.length; }
+  for(const p of rest) text=text.replace(/\s*$/,'\n')+newPage(p);
+  editDoc(text,focus);
+  const redrawn=pages.reduce((n,p)=>n+p.redrawn,0), warnings=pages.flatMap(p=>p.g.warnings);
+  toast(`Imported ${name}${pages.length>1?` (${plural(pages.length,'page')})`:''}. ${plural(redrawn,'shape')} ${redrawn===1?'was':'were'} redrawn as the nearest editor shape; Visio-only artwork and formatting are not kept.`
+    +(warnings.length?' '+warnings.join(' '):''),9000);
+}
+const uniquePageName=base=>{ let n=base, i=2; while(S.ast.pages.some(p=>p.name===n)) n=`${base} (${i++})`; return n; };
 function vsdxFiles(){
   const V=`xmlns="${NS}" xmlns:r="${RNS}" xml:space="preserve"`, b=blankFiles(), files={};
   for(const k of ['_rels/.rels','docProps/core.xml','docProps/app.xml','visio/document.xml','visio/_rels/document.xml.rels']) files[k]=b[k];
@@ -105,13 +131,13 @@ export function visioNotes(){
 }
 
 /* ---------- opening and saving ---------- */
-const OPEN_TYPES=[{description:'Diagrams',accept:{'text/plain':['.flow','.mmd','.mermaid','.puml','.plantuml','.pu','.dot','.gv','.drawio','.md','.txt'],'application/vnd.ms-visio.drawing':['.vsdx','.vsdm']}}];
+const OPEN_TYPES=[{description:'Diagrams',accept:{'text/plain':['.flow','.mmd','.mermaid','.puml','.plantuml','.pu','.dot','.gv','.drawio','.md','.txt']}}];
 const SAVE_TYPES=[{description:'Flow diagram',accept:{'text/plain':['.flow']}}];
 export const isFlowText=t=>/^\s*(?:#[^\n]*\n\s*)*(?:flow\s+\d|page\s+")/i.test(t);
 export async function openAny(file,handle){
   const name=file.name, lower=name.toLowerCase();
   try{
-    if(/\.vsd[xm]$/.test(lower)){ await openVisio(await file.arrayBuffer(),name); return; }
+    if(/\.vsd[xm]$/.test(lower)){ openImport(file); return; }   // Visio drawings are imported into the document, not opened
     if(/\.vsd$/.test(lower)) throw new Error('older .vsd files need to be opened in Visio and saved as .vsdx first.');
     if(file.size>MAX_IMPORT_CHARS) throw new Error('the file is too large.');
     const text=await file.text();

@@ -5,7 +5,7 @@
      edges: [{from, to, label, directed, both}]
      direction ('TB'|'LR'|'BT'|'RL'), positioned (true when the source carried coordinates), warnings: []
    ===================================================================== */
-import {NS, PX, S, colour, kid, kids} from '../core.js';
+import {NS, PX, S, colour, distToPolyline, kid, kids} from '../core.js';
 import {cellV, is1D, num, rowV, shapeCtx, shapeText} from '../visio-package.js';
 import {buildPaths, geomFor} from '../geometry.js';
 import {pageCtx, render} from '../render.js';
@@ -31,13 +31,17 @@ export const fullLabel=n=>n.kind==='table'?[n.label,...(n.columns||[])].join('\n
 const MASTER_KINDS=[[/decision/i,'decision'],[/start|end|terminat/i,'terminator'],[/sub-?process|predefined/i,'subprocess'],
   [/multiple doc|documents/i,'multidoc'],[/document/i,'document'],[/database|data store|cylinder/i,'database'],[/^data\b|\bdata$/i,'data'],
   [/manual input/i,'manualInput'],[/manual op/i,'manualOp'],[/preparation/i,'preparation'],[/delay/i,'delay'],[/off-?page/i,'offPage'],
-  [/circle|ellipse|on-?page/i,'ellipse'],[/cloud/i,'cloud'],[/server/i,'server'],[/user|person|actor/i,'user']];
+  [/circle|ellipse|on-?page/i,'ellipse'],[/cloud/i,'cloud'],[/sql|database|data store/i,'database'],[/server/i,'server'],[/user|person|actor/i,'user'],
+  [/web design|code|api\b/i,'api'],[/ui ?ux|screen|monitor|browser|web page/i,'browser']];
+/* Icon masters (SQL Server, Web design and so on) are groups of artwork; their colours belong to the artwork */
+const iconMaster=el=>{ const sh=shapeCtx(el,null), ms=sh.mid&&S.masters[sh.mid];
+  return el.getAttribute('Type')==='Group'&&!!(ms&&ms.name)&&MASTER_KINDS.some(([re])=>re.test(ms.name)); };
 function kindOf(el){
   const r=roleOf(el);
   if(r==='table'||(SHAPES[r]&&!/^table(Header|Row)$/.test(r))) return r;
-  if(el.getAttribute('Type')==='Group') return 'process';
   const sh=shapeCtx(el,null), ms=sh.mid&&S.masters[sh.mid];
   if(ms&&ms.name) for(const [re,k] of MASTER_KINDS) if(re.test(ms.name)) return k;
+  if(el.getAttribute('Type')==='Group') return 'process';
   if(num(sh,'LinePattern',1)===0&&num(sh,'FillPattern',1)===0) return 'text';
   const W=num(sh,'Width',1)||1, H=num(sh,'Height',1)||1, paths=buildPaths(sh,W,H);
   if(!paths.some(p=>p.subs.length&&(p.fill||p.line))) return 'text';
@@ -49,6 +53,22 @@ function kindOf(el){
   }
   return 'process';
 }
+/* Visio's dynamic connectors route at right angles unless set to straight (2) or centre to centre (16) */
+function visioElbow(el,sh){
+  const ms=sh.mid&&S.masters[sh.mid], rs=num(sh,'ShapeRouteStyle',0);
+  if(rs===2||rs===16) return false;
+  return !!(ms&&/dynamic connector/i.test(ms.name||''))||(S.lines[el.getAttribute('ID')]||[]).flat().length>2;
+}
+/* The corners of a connector as drawn, without its two ends, in inches. Tiny jogs and points in the middle
+   of a straight run are dropped. */
+function bendsOf(id){
+  const pts=(S.lines[id]||[]).flat().map(p=>[p[0]/PX,p[1]/PX]), tol=0.02, out=[];
+  for(const p of pts){ const q=out[out.length-1]; if(!q||Math.hypot(p[0]-q[0],p[1]-q[1])>tol) out.push(p); }
+  const level=(a,b)=>Math.abs(a[0]-b[0])<tol||Math.abs(a[1]-b[1])<tol;
+  const corners=out.filter((p,i)=>i>0&&i<out.length-1&&!(level(out[i-1],p)&&level(p,out[i+1])&&
+    (Math.abs(out[i-1][0]-out[i+1][0])<tol||Math.abs(out[i-1][1]-out[i+1][1])<tol)));
+  return corners.length?corners:null;
+}
 export function pageGraph(){
   render();
   const pg=pageCtx(), top=kids(kid(pg.doc.documentElement,'Shapes'),'Shape'), cons=listConnects();
@@ -57,8 +77,9 @@ export function pageGraph(){
   for(const el of top){
     const sh=shapeCtx(el,null), id=el.getAttribute('ID'), b=S.boxes[id];
     if(is1D(sh)||!b||roleOf(el)==='key') continue;
-    const kind=kindOf(el), n={id,kind,x:b.x0/PX,y:b.y0/PX,w:(b.x1-b.x0)/PX,h:(b.y1-b.y0)/PX,
-      fill:colour(cellV(sh,'FillForegnd',null),null),line:colour(cellV(sh,'LineColor',null),null),textColour:colour(rowV(sh,'Character','0','Color'),null)};
+    const kind=kindOf(el), icon=iconMaster(el), n={id,kind,x:b.x0/PX,y:b.y0/PX,w:(b.x1-b.x0)/PX,h:(b.y1-b.y0)/PX,
+      fill:icon?null:colour(cellV(sh,'FillForegnd',null),null),line:icon?null:colour(cellV(sh,'LineColor',null),null),
+      textColour:icon?null:colour(rowV(sh,'Character','0','Color'),null)};
     if(kind==='table'){ const p=tableParts(el); n.label=p.header?shapeText(shapeCtx(p.header,null)):''; n.columns=p.rows.map(r=>shapeText(shapeCtx(r,null))); }
     else if(el.getAttribute('Type')==='Group') n.label=[shapeText(sh),...[...el.getElementsByTagNameNS(NS,'Shape')].map(c=>shapeText(shapeCtx(c,sh.mid)))].filter(Boolean).join('\n');
     else n.label=shapeText(sh);
@@ -70,15 +91,26 @@ export function pageGraph(){
     for(const n of g.nodes){ if(n.kind==='text') continue;
       if(x>=n.x-tol&&x<=n.x+n.w+tol&&y>=n.y-tol&&y<=n.y+n.h+tol&&n.w*n.h<area){ best=n.id; area=n.w*n.h; } }
     return best; };
+  const connectors=top.filter(el=>is1D(shapeCtx(el,null)));
+  const endOf=(el,e,depth=0)=>{
+    const sh=shapeCtx(el,null), id=el.getAttribute('ID'), c=cons.find(c=>c.from===id&&c.fromCell===e+'X');
+    if(c&&byId[topOf[c.to]]) return topOf[c.to];
+    const x=num(sh,e+'X',NaN), y=pg.h-num(sh,e+'Y',NaN);
+    const n=nodeAt(x,y); if(n||depth) return n;
+    // a line that ends on another line joins it, and goes where that line goes (Visio draws merging branches this way)
+    const onto=connectors.find(o=>o!==el&&distToPolyline(S.lines[o.getAttribute('ID')],x*PX,y*PX)<=tol*PX);
+    return onto?endOf(onto,'End',1):null;
+  };
   let loose=0, loops=0;
-  for(const el of top){
-    const sh=shapeCtx(el,null), id=el.getAttribute('ID'); if(!is1D(sh)) continue;
-    const end=e=>{ const c=cons.find(c=>c.from===id&&c.fromCell===e+'X'); if(c&&byId[topOf[c.to]]) return topOf[c.to];
-      return nodeAt(num(sh,e+'X',NaN),pg.h-num(sh,e+'Y',NaN)); };
-    let from=end('Begin'), to=end('End');
+  for(const el of connectors){
+    const sh=shapeCtx(el,null), id=el.getAttribute('ID');
+    if(Math.hypot(num(sh,'EndX',0)-num(sh,'BeginX',0),num(sh,'EndY',0)-num(sh,'BeginY',0))<1e-3) continue;   // zero-length leftovers are invisible
+    let from=endOf(el,'Begin'), to=endOf(el,'End');
     if(!from||!to){ loose++; continue; }
     if(from===to){ loops++; continue; }
     const st=edgeStyleOf(el);
+    if(!st.route&&visioElbow(el,sh)) st.route='elbow';
+    if(st.route==='elbow') st.via=bendsOf(id);   // inches from the page's top-left, like node positions
     g.edges.push({from,to,label:shapeText(sh).trim(),...st,directed:st.end!=='none'||st.start!=='none',both:st.start!=='none'&&st.end!=='none'});
   }
   const fidOf={}; for(const t of top){ const f=userV(t,'FlowId'); if(f) fidOf[t.getAttribute('ID')]=f; }   // export with the names used in the text

@@ -2,15 +2,15 @@
 import {SHAPES, tableHeight} from '../shapes.js';
 import {clampN} from '../formats/export.js';
 import {sizeFor} from '../layout.js';
-import {CARD_L, CARD_L_TOK, CARD_R, CARD_R_TOK, CONN, LINE_STYLES, MARKERS, resolveType} from './model.js';
+import {CARD_L, CARD_L_TOK, CARD_R, CARD_R_TOK, CONN, LINE_STYLES, MARKERS, parseVia, resolveType, viaToStr} from './model.js';
 
 export const KIND_ALIASES={rect:'process',box:'process',step:'process',diamond:'decision',start:'terminator',end:'terminator',stadium:'terminator',
   db:'database',cylinder:'database',doc:'document',docs:'multidoc',person:'user',actor:'user',component:'api',system:'api',hexagon:'preparation',
   circle:'ellipse',label:'text',note:'text',screen:'mobile',input:'field',select:'dropdown'};
 export let FLOW_KINDS;
 export const FLOW_ID=/^[A-Za-z_][\w-]*$/;
-const SHAPE_ATTRS=['fill','stroke','text','weight'], EDGE_ATTRS=['style','start','end','stroke','weight','means'];
-const qs=s=>'"'+String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n')+'"';
+const SHAPE_ATTRS=['fill','stroke','text','weight'], EDGE_ATTRS=['style','start','end','stroke','weight','means','route','via'];
+const qs=s=>'"'+String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n|[\u2028\u2029]/g,'\\n')+'"';
 const unescapeStr=s=>s.replace(/\\(.)/g,(_,c)=>c==='n'?'\n':c);
 const mmN=v=>String(Math.round(v*10)/10);
 function readString(s,p){ let i=p+1, v=''; while(i<s.length&&s[i]!=='"'){ if(s[i]==='\\'&&i+1<s.length){ v+=s[i]+s[i+1]; i+=2; } else v+=s[i++]; } return i<s.length?{v:unescapeStr(v),end:i+1}:null; }
@@ -36,6 +36,8 @@ function parseAttrs(s,allowed,fail){
     if(k==='weight'){ const w=+v; if(!(w>=0.25&&w<=12)) return fail('weight is a line thickness in points, from 0.25 to 12.'); v=w; }
     if(k==='style'&&!LINE_STYLES[v]) return fail('style is solid, dashed or dotted.');
     if((k==='start'||k==='end')&&!MARKERS[v]) return fail(`${k} is one of: ${Object.keys(MARKERS).join(', ')}.`);
+    if(k==='route'&&v!=='straight'&&v!=='elbow') return fail('route is straight or elbow.');
+    if(k==='via'){ v=parseVia(v); if(!v) return fail('via lists bend points in mm from the top-left of the page, like via="40,20 40,60".'); }
     a[k]=typeof v==='string'&&/^#/.test(v)?v.toUpperCase():v; rest=rest.replace(m[0],''); }
   if(rest.replace(/[\s,]/g,'')) return fail(`Could not read the settings "${rest.trim()}".`);
   return a;
@@ -128,7 +130,9 @@ export function edgeStmt(e){
   if(t==='er') tok=CARD_L_TOK[e.start]+(e.style==='solid'?'--':'..')+CARD_R_TOK[e.end];
   else if(t==='custom'){ tok='--'; Object.assign(a,{style:e.style,start:e.start,end:e.end}); }
   else tok=CONN[t].token;
-  Object.assign(a,orderedAttrs({stroke:e.stroke,weight:e.weight,means:e.means},['stroke','weight','means']));
+  const elbow=e.route==='elbow';
+  Object.assign(a,orderedAttrs({stroke:e.stroke,weight:e.weight,means:e.means,route:elbow?'elbow':null,via:elbow&&e.via&&e.via.length?viaToStr(e.via):null},
+    ['stroke','weight','means','route','via']));
   let s=`${e.from} ${tok} ${e.to}`; const as=attrStr(a); if(as) s+=' '+as; if(e.label) s+=' : '+qs(e.label); return s;
 }
 export const keyStmt=k=>`key ${qs(k.title||'Key')}`+(k.place?` @ ${mmN(k.place.x)},${mmN(k.place.y)}`:'');
