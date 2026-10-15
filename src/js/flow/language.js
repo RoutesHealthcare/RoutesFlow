@@ -9,7 +9,12 @@ export const KIND_ALIASES={rect:'process',box:'process',step:'process',diamond:'
   circle:'ellipse',label:'text',note:'text',screen:'mobile',input:'field',select:'dropdown'};
 export let FLOW_KINDS;
 export const FLOW_ID=/^[A-Za-z_][\w-]*$/;
-const SHAPE_ATTRS=['fill','stroke','text','weight'], EDGE_ATTRS=['style','start','end','stroke','weight','means','route','via'];
+const SHAPE_ATTRS=['fill','stroke','text','weight','icon'], EDGE_ATTRS=['style','start','end','stroke','weight','means','route','via'];
+/* A picture kept from an import, such as a Visio icon: icon web_design "data:image/svg+xml;base64,..."
+   Only SVG and PNG data URIs are accepted; they are drawn with <image>, which runs no scripts and loads nothing. */
+export const ICON_DATA=/^data:image\/(?:svg\+xml|png);base64,[A-Za-z0-9+/]+=*$/;
+const MAX_ICON_CHARS=2e6;
+export const iconStmt=(name,data)=>`icon ${name} ${qs(data)}`;
 const qs=s=>'"'+String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\r?\n|[\u2028\u2029]/g,'\\n')+'"';
 const unescapeStr=s=>s.replace(/\\(.)/g,(_,c)=>c==='n'?'\n':c);
 const mmN=v=>String(Math.round(v*10)/10);
@@ -37,6 +42,7 @@ function parseAttrs(s,allowed,fail){
     if(k==='style'&&!LINE_STYLES[v]) return fail('style is solid, dashed or dotted.');
     if((k==='start'||k==='end')&&!MARKERS[v]) return fail(`${k} is one of: ${Object.keys(MARKERS).join(', ')}.`);
     if(k==='route'&&v!=='straight'&&v!=='elbow') return fail('route is straight or elbow.');
+    if(k==='icon'&&!/^[A-Za-z_][\w-]*$/.test(v)) return fail('icon is the name of an icon line, like icon=web_design.');
     if(k==='via'){ v=parseVia(v); if(!v) return fail('via lists bend points in mm from the top-left of the page, like via="40,20 40,60".'); }
     a[k]=typeof v==='string'&&/^#/.test(v)?v.toUpperCase():v; rest=rest.replace(m[0],''); }
   if(rest.replace(/[\s,]/g,'')) return fail(`Could not read the settings "${rest.trim()}".`);
@@ -49,7 +55,7 @@ function parseConnector(tok){
   return null;
 }
 export function parseFlow(text){
-  const lines=text.split('\n'), ast={pages:[],errors:[]}; let page=null;
+  const lines=text.split('\n'), ast={pages:[],errors:[],icons:new Map()}; let page=null;
   const newPage=(name,line)=>{ page={name,size:null,direction:'TB',headerLine:line,shapes:[],byId:new Map(),edges:[],edgeByLine:new Map(),key:null,
     lastShapeLine:null,lastEdgeLine:null,endLine:line??0}; ast.pages.push(page); return page; };
   lines.forEach((raw,i)=>{
@@ -58,6 +64,13 @@ export function parseFlow(text){
     const fail=msg=>{ ast.errors.push({line:i,msg}); return null; };
     let m;
     if((m=code.match(/^flow\s+(\S+)$/i))){ if(ast.pages.length) fail('"flow" belongs at the top of the file.'); else if(m[1]!=='1') fail(`This editor reads version 1 flow files, not version ${m[1]}.`); return; }
+    if((m=code.match(/^icon\s+([A-Za-z_][\w-]*)\s+(.*)$/i))){
+      const s=m[2].startsWith('"')&&readString(m[2],0);
+      if(!s||m[2].slice(s.end).trim()) return fail('An icon needs a name and a picture in quotes, like icon server "data:image/svg+xml;base64,...".');
+      if(s.v.length>MAX_ICON_CHARS||!ICON_DATA.test(s.v)) return fail('An icon picture must be an SVG or PNG data URI.');
+      if(ast.icons.has(m[1])) return fail(`The icon "${m[1]}" is defined twice.`);
+      ast.icons.set(m[1],s.v); return;
+    }
     if((m=code.match(/^page\b\s*(.*)$/i))){
       const rest=m[1], s=rest.startsWith('"')&&readString(rest,0); if(!s) return fail('A page needs a name in quotes, like page "Onboarding".');
       const p=newPage(s.v,i); let r=rest.slice(s.end), mm;

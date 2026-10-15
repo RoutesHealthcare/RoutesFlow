@@ -9,8 +9,8 @@ import {render} from './render.js';
 import {openImport} from './dialogs.js';
 import {IMPORTERS, detectFormat, unfence} from './formats/import.js';
 import {layoutGraph} from './layout.js';
-import {MARKERS, VISIO_CONFIRMED, applyTags, userV} from './flow/model.js';
-import {FLOW_ID, FLOW_KINDS, autoSizeMM, edgeStmt, keyStmt, pageStmt, shapeStmt, tableH, uniqueFid} from './flow/language.js';
+import {applyTags, MARKERS, setUser, userV, VISIO_CONFIRMED} from './flow/model.js';
+import {autoSizeMM, edgeStmt, FLOW_ID, FLOW_KINDS, iconStmt, keyStmt, pageStmt, shapeStmt, tableH, uniqueFid} from './flow/language.js';
 import {LOOSE_GAP, PAGE_MARGIN, geoMM} from './flow/sync.js';
 import {editDoc, loadText, setDirty} from './document.js';
 import {TP, applyFromEditor} from './text-pane.js';
@@ -28,7 +28,8 @@ export function graphStatements(g,{ox=PAGE_MARGIN,oy=PAGE_MARGIN,used=new Set(),
     const place=n.keepPlace!==undefined?n.keepPlace:placed&&n.x!=null?{x:ox+n.x*25.4,y:oy+n.y*25.4,w:sized?w:null,h:sized?(kind==='table'?tableH(n.columns):h):null}:null;
     const hex=v=>v&&/^#[0-9a-f]{6}$/i.test(v)?v.toUpperCase():null, T=SHAPES[kind];
     const attrs=n.keepAttrs||(kind==='table'?{}:{fill:hex(n.fill)&&hex(n.fill)!==(T.fill||DEF.fill).toUpperCase()?hex(n.fill):null,
-      stroke:hex(n.line)&&hex(n.line)!==DEF.line.toUpperCase()?hex(n.line):null,text:hex(n.textColour)&&hex(n.textColour)!==(T.textColour||DEF.text).toUpperCase()?hex(n.textColour):null});
+      stroke:hex(n.line)&&hex(n.line)!==DEF.line.toUpperCase()?hex(n.line):null,text:hex(n.textColour)&&hex(n.textColour)!==(T.textColour||DEF.text).toUpperCase()?hex(n.textColour):null,
+      icon:n.iconRef||null});
     lines.push(shapeStmt({id:ids.get(n.id),kind,label:n.label||'',columns:kind==='table'?(n.columns&&n.columns.length?n.columns:['column']):null,place,attrs}));
   }
   for(const e of g.edges){
@@ -73,9 +74,8 @@ export async function readVisio(buf){
     for(let i=0;i<S.pages.length;i++){
       S.pi=i; const pg=S.pages[i], g=pageGraph();
       const top=kids(kid(pg.doc.documentElement,'Shapes'),'Shape');
-      const redrawn=top.filter(el=>!is1D(shapeCtx(el,null))&&!roleOf(el)).length;
       const key=top.find(el=>roleOf(el)==='key');   // a key this editor wrote comes back as a key
-      out.push({name:pg.name+(pg.bg?' (background)':''),size:[pg.w*25.4,pg.h*25.4],g,redrawn,
+      out.push({name:pg.name+(pg.bg?' (background)':''),size:[pg.w*25.4,pg.h*25.4],g,
         key:key?{title:userV(key,'FlowKeyTitle')||'Key',place:geoMM(key,pg)}:null});
     }
   } finally { Object.assign(S,keep); render(); }   // reading draws each Visio page, so put the open page back
@@ -86,6 +86,7 @@ export async function readVisio(buf){
 export async function importVisio(buf,name,dest){
   const pages=await readVisio(buf);
   if(!pages.some(p=>p.g.nodes.length)) throw new Error('no shapes were found in that drawing.');
+  const iconLines=nameIcons(pages.flatMap(p=>p.g.nodes));
   const ap=S.ast.pages[S.pi], used=new Set(ap.shapes.map(d=>d.id));
   const pageText=(p,opts)=>{ const lines=graphStatements(p.g,{ox:0,oy:0,used:new Set(),relabel:true,...opts}).lines;
     if(p.key) lines.push(keyStmt({title:p.key.title,place:{x:p.key.place.x,y:p.key.place.y}})); return lines; };
@@ -102,12 +103,41 @@ export async function importVisio(buf,name,dest){
     L.splice(at+1,0,...pageText(first,{ox,used})); text=L.join('\n');
   } else { text=text.replace(/\s*$/,'\n')+newPage(first); focus=S.ast.pages.length; }
   for(const p of rest) text=text.replace(/\s*$/,'\n')+newPage(p);
-  editDoc(text,focus);
-  const redrawn=pages.reduce((n,p)=>n+p.redrawn,0), warnings=pages.flatMap(p=>p.g.warnings);
-  toast(`Imported ${name}${pages.length>1?` (${plural(pages.length,'page')})`:''}. ${plural(redrawn,'shape')} ${redrawn===1?'was':'were'} redrawn as the nearest editor shape; Visio-only artwork and formatting are not kept.`
+  editDoc(addIconLines(text,iconLines),focus);
+  const nodes=pages.flatMap(p=>p.g.nodes), icons=nodes.filter(n=>n.iconRef).length, warnings=pages.flatMap(p=>p.g.warnings);
+  toast(`Imported ${name}${pages.length>1?` (${plural(pages.length,'page')})`:''}: ${plural(nodes.length,'shape')}`
+    +(icons?`, ${icons} of them icons kept as pictures`:'')+'. Shapes take the editor\'s nearest equivalent, so some Visio formatting is not kept.'
     +(warnings.length?' '+warnings.join(' '):''),9000);
 }
+/* Gives each distinct icon picture a name (reusing one already in the document for the same picture), sets
+   n.iconRef on the nodes that use it, and returns the icon lines the document still needs */
+function nameIcons(nodes){
+  const known=new Map([...S.ast.icons].map(([name,data])=>[data,name])), taken=new Set(S.ast.icons.keys()), lines=[];
+  for(const n of nodes){ if(!n.icon) continue;
+    let name=known.get(n.iconKey)||known.get(n.icon);
+    if(!name){
+      const base=String(n.iconName||'icon').toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'').replace(/^(?=\d)/,'i_')||'icon';
+      name=base; for(let i=2;taken.has(name);i++) name=`${base}_${i}`;
+      taken.add(name); known.set(n.icon,name); if(n.iconKey) known.set(n.iconKey,name); lines.push(iconStmt(name,n.icon));
+    }
+    n.iconRef=name;
+  }
+  return lines;
+}
+/* Icon lines sit under the "flow 1" header, before the first page */
+function addIconLines(text,lines){
+  if(!lines.length) return text;
+  const L=text.split('\n'), at=L.findIndex(l=>/^\s*flow\s/i.test(l));
+  L.splice(at+1,0,...lines); return L.join('\n');
+}
 const uniquePageName=base=>{ let n=base, i=2; while(S.ast.pages.some(p=>p.name===n)) n=`${base} (${i++})`; return n; };
+/* A copy of the page in which each icon shape also carries its picture, so importing the .vsdx again keeps the icon */
+function withIconData(doc){
+  if(!S.ast.icons.size) return doc;
+  const copy=doc.cloneNode(true);
+  for(const el of copy.getElementsByTagNameNS(NS,'Shape')){ const d=S.ast.icons.get(userV(el,'FlowIcon')); if(d) setUser(el,'FlowIconData',d); }
+  return copy;
+}
 function vsdxFiles(){
   const V=`xmlns="${NS}" xmlns:r="${RNS}" xml:space="preserve"`, b=blankFiles(), files={};
   for(const k of ['_rels/.rels','docProps/core.xml','docProps/app.xml','visio/document.xml','visio/_rels/document.xml.rels']) files[k]=b[k];
@@ -117,7 +147,7 @@ function vsdxFiles(){
     +'<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>';
   files['visio/pages/pages.xml']=XML_DECL+`<Pages ${V}>`+S.pages.map((p,i)=>`<Page ID="${i}" NameU="${xmlEsc(p.name)}" Name="${xmlEsc(p.name)}" ViewScale="-1"><PageSheet LineStyle="0" FillStyle="0" TextStyle="0">${pg(p.w,p.h)}</PageSheet><Rel r:id="rId${i+1}"/></Page>`).join('')+'</Pages>';
   files['visio/pages/_rels/pages.xml.rels']=XML_DECL+`<Relationships xmlns="${PRNS}">`+S.pages.map((_,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.microsoft.com/visio/2010/relationships/page" Target="page${i+1}.xml"/>`).join('')+'</Relationships>';
-  S.pages.forEach((p,i)=>files[`visio/pages/page${i+1}.xml`]=XML_DECL+ser(p.doc));
+  S.pages.forEach((p,i)=>files[`visio/pages/page${i+1}.xml`]=XML_DECL+ser(withIconData(p.doc)));
   return files;
 }
 export async function buildVsdx(){

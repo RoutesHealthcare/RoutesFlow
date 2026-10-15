@@ -42,6 +42,7 @@ function applyShapeAttrs(el,a){
   if(a.fill){ setCell(el,'FillForegnd',a.fill); setCell(el,'FillPattern',1); }
   if(a.stroke){ setCell(el,'LineColor',a.stroke); if(numEl(el,'LinePattern',1)===0) setCell(el,'LinePattern',1); }
   if(a.weight) setCell(el,'LineWeight',a.weight/72);
+  if(a.icon) setUser(el,'FlowIcon',a.icon);
   const tc=rowCellEl(el,'Character','0','Color'); if(a.text&&tc) tc.setAttribute('V',a.text);
 }
 function keyRows(ap){
@@ -124,7 +125,7 @@ export function modelPage(pi){
     else {
       s.label=shapeText(sh); const T=SHAPES[kind], diff=(v,d)=>v&&v.toUpperCase()!==String(d).toUpperCase()?v.toUpperCase():null;
       s.attrs={fill:T.bare?null:diff(colour(cellV(sh,'FillForegnd',null),null),T.fill||DEF.fill),stroke:T.bare?null:diff(colour(cellV(sh,'LineColor',null),null),DEF.line),
-        text:diff(colour(rowV(sh,'Character','0','Color'),null),T.textColour||DEF.text),weight:T.bare?null:weightOf(sh)};
+        text:diff(colour(rowV(sh,'Character','0','Color'),null),T.textColour||DEF.text),weight:T.bare?null:weightOf(sh),icon:userV(el,'FlowIcon')||null};
     }
     let fid=userV(el,'FlowId'); if(!fid){ fid=uniqueFid(s.label||kind,used); used.add(fid); setUser(el,'FlowId',fid); }
     s.id=fid; fidOf[el.getAttribute('ID')]=fid; shapes.push(s);

@@ -49,3 +49,43 @@ test('the route can be switched between straight and right-angled', async({app,p
   await page.selectOption('#pRoute','straight');
   expect((await app.flowText()).match(/route=elbow/g).length).toBe(before-1);
 });
+
+test.describe('icons',()=>{
+  test('Visio icon shapes keep their artwork, once per distinct icon', async({app,page})=>{
+    await app.importFile(VISIO,'replace');
+    await expect(page.locator('#toast')).toContainText('4 of them icons kept as pictures');
+    await expect(page.locator('#layer > [data-id] > image')).toHaveCount(4);
+    const text=await app.flowText();
+    const iconLines=text.split('\n').filter(l=>l.startsWith('icon '));
+    expect(iconLines).toHaveLength(3);   // two shapes share one picture
+    for(const l of iconLines) expect(l).toMatch(/^icon \w+ "data:image\/svg\+xml;base64,[A-Za-z0-9+/]+=*"$/);
+    expect(text.match(/\[icon=\w+\]/g)).toHaveLength(4);
+  });
+
+  test('an icon shape can be selected and its label edited', async({app,page})=>{
+    await app.importFile(VISIO,'replace');
+    const icon=app.shapes.filter({has:page.locator(':scope > image')}).first(), c=await app.centreOf(icon.locator(':scope > image'));
+    await page.mouse.click(c.x,c.y); await page.mouse.click(c.x,c.y);
+    await expect(app.textEditor).toBeVisible();
+    await page.keyboard.type('Data warehouse'); await page.keyboard.press('Control+Enter');
+    await expect(app.shape('Data warehouse').locator(':scope > image')).toHaveCount(1);
+  });
+
+  test('icons survive a Visio export and import', async({app,page},testInfo)=>{
+    await app.importFile(VISIO,'replace');
+    await page.click('#btnExport'); await page.selectOption('#exportFmt','vsdx');
+    const [download]=await Promise.all([page.waitForEvent('download'),page.click('#exportDownload')]);
+    const file=testInfo.outputPath('icons.vsdx'); await download.saveAs(file);
+    await page.reload();
+    await app.importFile(file,'replace');
+    await expect(page.locator('#layer > [data-id] > image')).toHaveCount(4);
+  });
+
+  test('an icon line must hold an SVG or PNG picture', async({app,page})=>{
+    await page.keyboard.press('Control+e');
+    const code=page.locator('#codeText');
+    await code.fill((await code.inputValue()).replace(/^flow 1$/m,'flow 1\nicon bad "data:text/html;base64,PHNjcmlwdD4="'));
+    await code.blur();
+    await expect(page.locator('#tpStatus')).toContainText('An icon picture must be an SVG or PNG data URI');
+  });
+});

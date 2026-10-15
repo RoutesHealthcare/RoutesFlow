@@ -9,8 +9,10 @@ A short guided tour opens on the first visit; the Tour button replays it.
 
 Visio drawings come in through **Import** (choosing a `.vsdx` with Open, or dropping one on the page, opens the
 Import dialog). Shapes keep their places and sizes, Visio's dynamic connectors keep their right-angled routes, and
-the first page can go on a new page, replace this page or sit beside what is there. Visio-only artwork is redrawn as
-the nearest editor shape. A connection's route (straight or right-angled) can be changed in the properties panel;
+the first page can go on a new page, replace this page or sit beside what is there. Icon shapes (SQL Server, screens,
+code and similar Visio stencils) keep their artwork: the picture is stored once per distinct icon as an
+`icon name "data:image/svg+xml;base64,..."` line under the `flow 1` header, and shapes use it with `[icon=name]`. The
+shape keeps its nearest editor type, so text exports still work. Other Visio-only formatting is not kept. A connection's route (straight or right-angled) can be changed in the properties panel;
 in the text it is `route=elbow`, with any imported bend points as `via="x,y x,y"` in mm. Moving a connected shape
 drops its bend points and re-routes the line.
 

@@ -1,12 +1,12 @@
 /* ---------- rendering ---------- */
-import {$, NS, PX, S, colour, kid, kids, readableText, stage, svgEl} from './core.js';
+import {$, colour, DEF, kid, kids, NS, PX, readableText, S, stage, svgEl} from './core.js';
 import {cellV, is1D, num, numEl, rowV, shapeCtx, shapeText} from './visio-package.js';
 import {ap, buildPaths, localMatrix, mul} from './geometry.js';
 import {HIT_PAD_PX, HIT_TOL_PX, syncSelection} from './selection.js';
 import {commitText} from './text-editor.js';
 import {drawHover} from './pointer.js';
 import {updateProps} from './properties.js';
-import {drawMarker, markerOf} from './flow/model.js';
+import {drawMarker, markerOf, userV} from './flow/model.js';
 import {addPage} from './visio-io.js';
 import {refreshEditor} from './text-pane.js';
 
@@ -35,6 +35,7 @@ function drawShape(el,parentM,inheritMid,g){
   const lc=colour(cellV(sh,'LineColor',null),'#000000'), fc=colour(cellV(sh,'FillForegnd',null),'#FFFFFF');
   const lw=Math.max(num(sh,'LineWeight',0.01)*PX,0.6);
   const corners=[[0,0],[W,0],[W,H],[0,H]].map(q=>ap(m,q[0],q[1]));
+  const icon=!oneD&&iconFor(el); if(icon){ drawIconShape(sh,g,id,corners,icon); return; }
   if(!oneD) g.appendChild(svgEl('path',{d:'M'+corners.map(q=>q.join(' ')).join('L')+'Z',fill:'transparent',stroke:'transparent',
     'stroke-width':HIT_PAD_PX*2,'vector-effect':'non-scaling-stroke'}));
   const all=[], polys=[], open=[]; let hit='';
@@ -84,17 +85,34 @@ function drawShape(el,parentM,inheritMid,g){
     const col=readableText(colour(rowV(sh,'Character','0','Color'),'#000000'),filled?fc:'#FFFFFF');
     const style=parseInt(rowV(sh,'Character','0','Style'),10)||0;   // bit flags: 1 bold, 2 italic, 4 underline
     let wpx=Math.abs(tw)*scale-8; if(oneD||wpx<40) wpx=Math.max(wpx,160);
-    const lines=wrap(txt,wpx,fs), lh=fs*1.2;
     const ha=oneD?1:parseInt(rowV(sh,'Paragraph','0','HorzAlign'),10);   // 0 left, 1 centre, 2 right
     const anchor=ha===0?'start':ha===2?'end':'middle', half=Math.max(Math.abs(tw)*scale/2-4,0);
     const tx=anchor==='start'?c[0]-half:anchor==='end'?c[0]+half:c[0];
-    const t=svgEl('text',{x:tx,y:c[1],'font-size':fs,'text-anchor':anchor,fill:col,'font-family':'Calibri, "Segoe UI", Arial, sans-serif',
-      'font-weight':style&1?'bold':null,'font-style':style&2?'italic':null,'text-decoration':style&4?'underline':null});
-    if(oneD) t.setAttribute('style','paint-order:stroke;stroke:#FFFFFF;stroke-width:4px;stroke-linejoin:round');
-    lines.forEach((ln,i)=>{ const ts=svgEl('tspan',{x:tx,dy:i===0?(-(lines.length-1)*lh/2+fs*0.35):lh}); ts.textContent=ln; t.appendChild(ts); });
-    g.appendChild(t);
+    drawLabel(g,wrap(txt,wpx,fs),tx,c[1],{fs,anchor,col,style,halo:oneD});
   }
 }
+/* Wrapped lines of text. valign 'middle' centres the block on y; 'top' hangs it just below y. */
+function drawLabel(g,lines,tx,y,{fs,anchor='middle',col,style=0,halo=false,valign='middle'}){
+  const lh=fs*1.2, first=valign==='top'?fs:-(lines.length-1)*lh/2+fs*0.35;
+  const t=svgEl('text',{x:tx,y,'font-size':fs,'text-anchor':anchor,fill:col,'font-family':'Calibri, "Segoe UI", Arial, sans-serif',
+    'font-weight':style&1?'bold':null,'font-style':style&2?'italic':null,'text-decoration':style&4?'underline':null});
+  if(halo) t.setAttribute('style','paint-order:stroke;stroke:#FFFFFF;stroke-width:4px;stroke-linejoin:round');
+  lines.forEach((ln,i)=>{ const ts=svgEl('tspan',{x:tx,dy:i===0?first:lh}); ts.textContent=ln; t.appendChild(ts); });
+  g.appendChild(t);
+}
+/* A shape shown as a picture kept from an import (a Visio icon), with its label underneath as Visio draws it */
+function drawIconShape(sh,g,id,corners,href){
+  const xs=corners.map(q=>q[0]), ys=corners.map(q=>q[1]), b={x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys)};
+  g.appendChild(svgEl('path',{d:'M'+corners.map(q=>q.join(' ')).join('L')+'Z',fill:'transparent',stroke:'transparent',
+    'stroke-width':HIT_PAD_PX*2,'vector-effect':'non-scaling-stroke'}));
+  g.appendChild(svgEl('image',{href,x:b.x0,y:b.y0,width:b.x1-b.x0,height:b.y1-b.y0,preserveAspectRatio:'xMidYMid meet'}));
+  S.boxes[id]=b;
+  const txt=num(sh,'HideText',0)?'':shapeText(sh); if(!txt.trim()) return;
+  const size=parseFloat(rowV(sh,'Character','0','Size')), fs=Math.max((isFinite(size)?size:0.1389)*PX,4);
+  const col=readableText(colour(rowV(sh,'Character','0','Color'),DEF.text),'#FFFFFF');
+  drawLabel(g,wrap(txt,Math.max(b.x1-b.x0+40,120),fs),(b.x0+b.x1)/2,b.y1+2,{fs,col,valign:'top'});
+}
+const iconFor=el=>{ const n=userV(el,'FlowIcon'); return n&&S.ast&&S.ast.icons?S.ast.icons.get(n)||null:null; };
 export function render(){
   const pg=pageCtx(); if(!pg) return;
   const pw=pg.w*PX, ph=pg.h*PX;

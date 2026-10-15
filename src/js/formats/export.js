@@ -12,6 +12,7 @@ import {pageCtx, render} from '../render.js';
 import {listConnects} from '../connectors.js';
 import {SHAPES, TABLE, roleOf, tableParts} from '../shapes.js';
 import {connTag, edgeStyleOf, resolveType, userV} from '../flow/model.js';
+import {ICON_DATA} from '../flow/language.js';
 
 export const FMT={
   mermaid:{name:'Mermaid flowchart',ext:'mmd',mime:'text/plain'},
@@ -53,6 +54,30 @@ function kindOf(el){
   }
   return 'process';
 }
+/* The artwork of an icon shape as drawn on the canvas, as an SVG data URI. Text is left out: an icon's caption
+   becomes the shape's label and is drawn under the picture. */
+function iconPicture(id,b){
+  const g=document.querySelector(`#layer > [data-id="${id}"]`); if(!g||b.x1-b.x0<1||b.y1-b.y0<1) return null;
+  const c=g.cloneNode(true);
+  for(const t of c.querySelectorAll('text')) t.remove();
+  for(const p of c.querySelectorAll('path[fill="transparent"],path[stroke="transparent"]')) p.remove();   // hit areas
+  if(!c.querySelector('path,circle,ellipse,rect,polygon,polyline,line')) return null;
+  toIconOrigin(c,b.x0,b.y0);   // coordinates relative to the icon, so the same icon used twice gives the same picture
+  const r=v=>+(v).toFixed(2), svgText=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${r(b.x1-b.x0)} ${r(b.y1-b.y0)}">${c.innerHTML}</svg>`;
+  return 'data:image/svg+xml;base64,'+base64(new TextEncoder().encode(svgText));
+}
+function base64(bytes){ let s=''; for(let i=0;i<bytes.length;i+=0x8000) s+=String.fromCharCode(...bytes.subarray(i,i+0x8000)); return btoa(s); }
+/* Moves drawn artwork so (x0,y0) becomes the origin. The renderer writes absolute M/L paths, circles and lines. */
+function toIconOrigin(root,x0,y0){
+  const fx=v=>(+v-x0).toFixed(1), fy=v=>(+v-y0).toFixed(1),   // 0.1 px: finer than the screen shows, coarse enough that copies match
+    num='(-?\\d+(?:\\.\\d+)?(?:e-?\\d+)?)';
+  const pair=new RegExp(num+'[ ,]+'+num,'g');
+  for(const p of root.querySelectorAll('path')) p.setAttribute('d',p.getAttribute('d').replace(pair,(_,x,y)=>fx(x)+' '+fy(y)));
+  for(const el of root.querySelectorAll('*')) for(const [ax,ay] of [['cx','cy'],['x','y'],['x1','y1'],['x2','y2']]){
+    if(el.hasAttribute(ax)) el.setAttribute(ax,fx(el.getAttribute(ax))); if(el.hasAttribute(ay)) el.setAttribute(ay,fy(el.getAttribute(ay))); }
+}
+/* A shape this editor exported to Visio carries its picture in a user cell, so importing it again keeps the icon */
+function iconOfOwn(el){ const d=userV(el,'FlowIconData'); return d&&ICON_DATA.test(d)?d:null; }
 /* Visio's dynamic connectors route at right angles unless set to straight (2) or centre to centre (16) */
 function visioElbow(el,sh){
   const ms=sh.mid&&S.masters[sh.mid], rs=num(sh,'ShapeRouteStyle',0);
@@ -84,6 +109,9 @@ export function pageGraph(){
     else if(el.getAttribute('Type')==='Group') n.label=[shapeText(sh),...[...el.getElementsByTagNameNS(NS,'Shape')].map(c=>shapeText(shapeCtx(c,sh.mid)))].filter(Boolean).join('\n');
     else n.label=shapeText(sh);
     if(kind==='text'&&!n.label.trim()) continue;
+    const pic=icon?iconPicture(id,b):iconOfOwn(el);
+    if(pic){ n.icon=pic; n.iconName=icon?S.masters[sh.mid].name:userV(el,'FlowIcon');
+      n.iconKey=icon?`${sh.mid}|${n.w.toFixed(2)}x${n.h.toFixed(2)}`:pic; }   // one master at one size is one icon
     g.nodes.push(n); byId[id]=n;
   }
   const tol=0.15;   // inches: an unglued connector end this close to a shape counts as attached

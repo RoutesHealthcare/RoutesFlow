@@ -1305,6 +1305,507 @@ button:disabled{opacity:.55;cursor:default}
   }
   var refreshFor = (id) => refreshForMany([id]);
 
+  // src/js/layout.js
+  function sizeFor(n) {
+    const T = SHAPES[n.kind] || SHAPES.process, text = fullLabel(n).split("\n"), CH = 0.075;
+    const longest = Math.max(1, ...text.map((l) => l.length));
+    if (n.kind === "table") return { w: Math.max(TABLE.w, longest * CH + 0.3), h: tableHeight(Math.max(1, (n.columns || []).length)) };
+    if (n.kind === "user" || n.kind === "server") return { w: T.w, h: T.h };
+    let w = Math.max(T.w, Math.min(3, longest * CH + 0.4));
+    const rows = text.reduce((s, l) => s + Math.max(1, Math.ceil(l.length * CH / Math.max(w - 0.3, 0.5))), 0);
+    let h = Math.max(T.h, rows * 0.22 + 0.3);
+    if (n.kind === "text") return { w: Math.min(3, longest * CH + 0.3), h: rows * 0.22 + 0.1 };
+    if (n.kind === "decision") {
+      w = Math.max(w * 1.35, 1.5);
+      h = Math.max(h * 1.4, 1);
+    }
+    return { w, h };
+  }
+  function layoutGraph(g) {
+    if (g.positioned) {
+      for (const n of g.nodes) {
+        n.w = clampN(n.w, 0.1, 20, 1.5);
+        n.h = clampN(n.h, 0.1, 20, 0.75);
+        n.x = clampN(n.x, -1e4, 1e4, 0);
+        n.y = clampN(n.y, -1e4, 1e4, 0);
+        if (n.kind === "table") n.h = tableHeight(Math.max(1, (n.columns || []).length));
+      }
+    } else {
+      const N = g.nodes.length, idx = new Map(g.nodes.map((n, i) => [n.id, i])), outs = g.nodes.map(() => []), linked = new Array(N).fill(false);
+      for (const n of g.nodes) if (n.w == null || n.h == null) Object.assign(n, sizeFor(n));
+      g.edges.forEach((e, k) => {
+        const a = idx.get(e.from), b = idx.get(e.to);
+        if (a == null || b == null || a === b) return;
+        outs[a].push([b, k]);
+        linked[a] = linked[b] = true;
+      });
+      const state2 = new Array(N).fill(0), back = /* @__PURE__ */ new Set(), indeg = new Array(N).fill(0);
+      for (const o of outs) for (const [b] of o) indeg[b]++;
+      const dfs = (s) => {
+        const st = [[s, 0]];
+        state2[s] = 1;
+        while (st.length) {
+          const top = st[st.length - 1], [v, i] = top;
+          if (i < outs[v].length) {
+            top[1]++;
+            const [w, k] = outs[v][i];
+            if (state2[w] === 1) back.add(k);
+            else if (!state2[w]) {
+              state2[w] = 1;
+              st.push([w, 0]);
+            }
+          } else {
+            state2[v] = 2;
+            st.pop();
+          }
+        }
+      };
+      for (let i = 0; i < N; i++) if (!indeg[i] && !state2[i]) dfs(i);
+      for (let i = 0; i < N; i++) if (!state2[i]) dfs(i);
+      const succ = g.nodes.map(() => []), pred = g.nodes.map(() => []);
+      for (let a = 0; a < N; a++) for (const [b, k] of outs[a]) if (!back.has(k)) {
+        succ[a].push(b);
+        pred[b].push(a);
+      }
+      const rank = new Array(N).fill(0), deg = pred.map((x) => x.length), q = [];
+      for (let i = 0; i < N; i++) if (!deg[i]) q.push(i);
+      while (q.length) {
+        const v = q.shift();
+        for (const w of succ[v]) {
+          rank[w] = Math.max(rank[w], rank[v] + 1);
+          if (--deg[w] === 0) q.push(w);
+        }
+      }
+      const maxR = Math.max(0, ...rank.filter((_, i) => linked[i])), anyLinked = linked.some(Boolean);
+      for (let i = 0; i < N; i++) if (!linked[i]) rank[i] = anyLinked ? maxR + 1 : 0;
+      const layers = [];
+      for (let i = 0; i < N; i++) (layers[rank[i]] = layers[rank[i]] || []).push(i);
+      const pos = new Array(N);
+      layers.forEach((Lr) => Lr && Lr.forEach((v, j) => pos[v] = j));
+      const bary = (v, nb) => nb[v].length ? nb[v].reduce((s, u) => s + pos[u], 0) / nb[v].length : pos[v];
+      for (let it = 0; it < 8; it++) {
+        const down = it % 2 === 0, nb = down ? pred : succ;
+        for (let r0 = 0; r0 < layers.length; r0++) {
+          const r = down ? r0 : layers.length - 1 - r0, Lr = layers[r];
+          if (!Lr) continue;
+          Lr.sort((a, b) => bary(a, nb) - bary(b, nb));
+          Lr.forEach((v, j) => pos[v] = j);
+        }
+      }
+      const horiz = g.direction === "LR" || g.direction === "RL", GAP_MAIN = 0.6, GAP_CROSS = 0.45;
+      const main = (v) => horiz ? g.nodes[v].w : g.nodes[v].h, cross = (v) => horiz ? g.nodes[v].h : g.nodes[v].w;
+      let offset = 0;
+      for (const Lr of layers) {
+        if (!Lr) continue;
+        const size = Math.max(...Lr.map(main)), total = Lr.reduce((s, v) => s + cross(v), 0) + GAP_CROSS * (Lr.length - 1);
+        let c = -total / 2;
+        for (const v of Lr) {
+          const n = g.nodes[v], m = offset + (size - main(v)) / 2;
+          if (horiz) {
+            n.x = m;
+            n.y = c;
+          } else {
+            n.x = c;
+            n.y = m;
+          }
+          c += cross(v) + GAP_CROSS;
+        }
+        offset += size + GAP_MAIN;
+      }
+      const ctr = (v) => horiz ? g.nodes[v].y + g.nodes[v].h / 2 : g.nodes[v].x + g.nodes[v].w / 2;
+      const setCtr = (v, c) => {
+        const n = g.nodes[v];
+        if (horiz) n.y = c - n.h / 2;
+        else n.x = c - n.w / 2;
+      };
+      for (const nb of [pred, succ, pred, succ]) {
+        const order = nb === pred ? layers : [...layers].reverse();
+        for (const Lr of order) {
+          if (!Lr) continue;
+          const want = Lr.map((v) => nb[v].length ? nb[v].reduce((s, u) => s + ctr(u), 0) / nb[v].length : ctr(v)), a = [], b = [];
+          let edge = -Infinity;
+          Lr.forEach((v, i) => {
+            a[i] = Math.max(want[i], edge + GAP_CROSS + cross(v) / 2);
+            edge = a[i] + cross(v) / 2;
+          });
+          edge = Infinity;
+          for (let i = Lr.length - 1; i >= 0; i--) {
+            const v = Lr[i];
+            b[i] = Math.min(want[i], edge - GAP_CROSS - cross(v) / 2);
+            edge = b[i] - cross(v) / 2;
+          }
+          Lr.forEach((v, i) => setCtr(v, (a[i] + b[i]) / 2));
+        }
+      }
+      if (g.direction === "BT" || g.direction === "RL") for (const n of g.nodes) {
+        if (horiz) n.x = offset - n.x - n.w;
+        else n.y = offset - n.y - n.h;
+      }
+    }
+    const mx = Math.min(...g.nodes.map((n) => n.x)), my = Math.min(...g.nodes.map((n) => n.y));
+    for (const n of g.nodes) {
+      n.x -= mx;
+      n.y -= my;
+    }
+  }
+
+  // src/js/flow/language.js
+  var KIND_ALIASES = {
+    rect: "process",
+    box: "process",
+    step: "process",
+    diamond: "decision",
+    start: "terminator",
+    end: "terminator",
+    stadium: "terminator",
+    db: "database",
+    cylinder: "database",
+    doc: "document",
+    docs: "multidoc",
+    person: "user",
+    actor: "user",
+    component: "api",
+    system: "api",
+    hexagon: "preparation",
+    circle: "ellipse",
+    label: "text",
+    note: "text",
+    screen: "mobile",
+    input: "field",
+    select: "dropdown"
+  };
+  var FLOW_KINDS;
+  var FLOW_ID = /^[A-Za-z_][\w-]*$/;
+  var SHAPE_ATTRS = ["fill", "stroke", "text", "weight", "icon"];
+  var EDGE_ATTRS = ["style", "start", "end", "stroke", "weight", "means", "route", "via"];
+  var ICON_DATA = /^data:image\/(?:svg\+xml|png);base64,[A-Za-z0-9+/]+=*$/;
+  var MAX_ICON_CHARS = 2e6;
+  var iconStmt = (name, data) => `icon ${name} ${qs(data)}`;
+  var qs = (s) => '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n|[\u2028\u2029]/g, "\\n") + '"';
+  var unescapeStr = (s) => s.replace(/\\(.)/g, (_, c) => c === "n" ? "\n" : c);
+  var mmN = (v) => String(Math.round(v * 10) / 10);
+  function readString(s, p) {
+    let i = p + 1, v = "";
+    while (i < s.length && s[i] !== '"') {
+      if (s[i] === "\\" && i + 1 < s.length) {
+        v += s[i] + s[i + 1];
+        i += 2;
+      } else v += s[i++];
+    }
+    return i < s.length ? { v: unescapeStr(v), end: i + 1 } : null;
+  }
+  function closeAt(s, p, ch) {
+    let q = false;
+    for (let i = p + 1; i < s.length; i++) {
+      if (q && s[i] === "\\") {
+        i++;
+        continue;
+      }
+      if (s[i] === '"') q = !q;
+      else if (!q && s[i] === ch) return i;
+    }
+    return -1;
+  }
+  function splitComment(line) {
+    let q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q && c === "\\") {
+        i++;
+        continue;
+      }
+      if (c === '"') q = !q;
+      else if (c === "#" && !q && (i === 0 || /\s/.test(line[i - 1]))) return { code: line.slice(0, i), comment: line.slice(i) };
+    }
+    return { code: line, comment: "" };
+  }
+  function splitList(s) {
+    const out = [];
+    let cur = "", q = false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (q && c === "\\") {
+        cur += c + (s[i + 1] || "");
+        i++;
+        continue;
+      }
+      if (c === '"') q = !q;
+      if (!q && (c === ";" || c === ",")) {
+        out.push(cur);
+        cur = "";
+      } else cur += c;
+    }
+    out.push(cur);
+    return out.map((x) => x.trim()).filter(Boolean).map((x) => /^".*"$/.test(x) ? unescapeStr(x.slice(1, -1)) : x);
+  }
+  function parseAttrs(s, allowed, fail) {
+    const a = {}, re = /([A-Za-z][\w-]*)\s*=\s*("(?:[^"\\]|\\.)*"|[^\s,]+)/g;
+    let m, rest = s;
+    while (m = re.exec(s)) {
+      const k = m[1].toLowerCase();
+      let v = m[2];
+      if (v.startsWith('"')) v = unescapeStr(v.slice(1, -1));
+      if (!allowed.includes(k)) return fail(`Unknown setting "${m[1]}". Use ${allowed.join(", ")}.`);
+      if ((k === "fill" || k === "stroke" || k === "text") && !/^#[0-9a-f]{6}$/i.test(v)) return fail(`${k} needs a colour like #1F6F78.`);
+      if (k === "weight") {
+        const w = +v;
+        if (!(w >= 0.25 && w <= 12)) return fail("weight is a line thickness in points, from 0.25 to 12.");
+        v = w;
+      }
+      if (k === "style" && !LINE_STYLES[v]) return fail("style is solid, dashed or dotted.");
+      if ((k === "start" || k === "end") && !MARKERS[v]) return fail(`${k} is one of: ${Object.keys(MARKERS).join(", ")}.`);
+      if (k === "route" && v !== "straight" && v !== "elbow") return fail("route is straight or elbow.");
+      if (k === "icon" && !/^[A-Za-z_][\w-]*$/.test(v)) return fail("icon is the name of an icon line, like icon=web_design.");
+      if (k === "via") {
+        v = parseVia(v);
+        if (!v) return fail('via lists bend points in mm from the top-left of the page, like via="40,20 40,60".');
+      }
+      a[k] = typeof v === "string" && /^#/.test(v) ? v.toUpperCase() : v;
+      rest = rest.replace(m[0], "");
+    }
+    if (rest.replace(/[\s,]/g, "")) return fail(`Could not read the settings "${rest.trim()}".`);
+    return a;
+  }
+  function parseConnector(tok) {
+    for (const [type, c] of Object.entries(CONN)) if (c.token === tok) return { style: c.style, start: c.start, end: c.end };
+    const m = tok.match(/^([|}][|o])(--|\.\.)([|o][|{])$/);
+    if (m) return { style: m[2] === "--" ? "solid" : "dashed", start: CARD_L[m[1]], end: CARD_R[m[3]] };
+    return null;
+  }
+  function parseFlow(text) {
+    const lines = text.split("\n"), ast = { pages: [], errors: [], icons: /* @__PURE__ */ new Map() };
+    let page = null;
+    const newPage = (name, line) => {
+      page = {
+        name,
+        size: null,
+        direction: "TB",
+        headerLine: line,
+        shapes: [],
+        byId: /* @__PURE__ */ new Map(),
+        edges: [],
+        edgeByLine: /* @__PURE__ */ new Map(),
+        key: null,
+        lastShapeLine: null,
+        lastEdgeLine: null,
+        endLine: line ?? 0
+      };
+      ast.pages.push(page);
+      return page;
+    };
+    lines.forEach((raw, i) => {
+      const code = splitComment(raw).code.trim();
+      if (page) page.endLine = i;
+      if (!code) return;
+      const fail = (msg) => {
+        ast.errors.push({ line: i, msg });
+        return null;
+      };
+      let m;
+      if (m = code.match(/^flow\s+(\S+)$/i)) {
+        if (ast.pages.length) fail('"flow" belongs at the top of the file.');
+        else if (m[1] !== "1") fail(`This editor reads version 1 flow files, not version ${m[1]}.`);
+        return;
+      }
+      if (m = code.match(/^icon\s+([A-Za-z_][\w-]*)\s+(.*)$/i)) {
+        const s = m[2].startsWith('"') && readString(m[2], 0);
+        if (!s || m[2].slice(s.end).trim()) return fail('An icon needs a name and a picture in quotes, like icon server "data:image/svg+xml;base64,...".');
+        if (s.v.length > MAX_ICON_CHARS || !ICON_DATA.test(s.v)) return fail("An icon picture must be an SVG or PNG data URI.");
+        if (ast.icons.has(m[1])) return fail(`The icon "${m[1]}" is defined twice.`);
+        ast.icons.set(m[1], s.v);
+        return;
+      }
+      if (m = code.match(/^page\b\s*(.*)$/i)) {
+        const rest = m[1], s = rest.startsWith('"') && readString(rest, 0);
+        if (!s) return fail('A page needs a name in quotes, like page "Onboarding".');
+        const p = newPage(s.v, i);
+        let r = rest.slice(s.end), mm;
+        while (r = r.trim()) {
+          if (mm = r.match(/^size\s+(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i)) {
+            p.size = [clampN(+mm[1], 50, 5e3, 297), clampN(+mm[2], 50, 5e3, 210)];
+            r = r.slice(mm[0].length);
+          } else if (mm = r.match(/^direction\s+(TB|TD|LR|BT|RL)\b/i)) {
+            const d = mm[1].toUpperCase();
+            p.direction = d === "TD" ? "TB" : d;
+            r = r.slice(mm[0].length);
+          } else return fail(`Unexpected "${r.slice(0, 20)}" in the page line. Use size WxH (mm) and direction TB, LR, BT or RL.`);
+        }
+        return;
+      }
+      if (!page) newPage("Page-1", null);
+      if (m = code.match(/^key\b(?!\s*:)\s*(.*)$/i)) {
+        if (page.key) return fail("A page has one key.");
+        const k = { title: "Key", place: null, line: i };
+        let r = m[1].trim(), mm;
+        if (r.startsWith('"')) {
+          const s = readString(r, 0);
+          if (!s) return fail("The key title is not closed.");
+          k.title = s.v;
+          r = r.slice(s.end).trim();
+        }
+        if (r) {
+          if (!(mm = r.match(/^@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/))) return fail('A key line looks like key "Key" @ x,y.');
+          k.place = { x: +mm[1], y: +mm[2] };
+        }
+        page.key = k;
+        page.lastShapeLine = i;
+        return;
+      }
+      if (m = code.match(/^([A-Za-z_][\w-]*)\s*:\s*([A-Za-z]+)\b(.*)$/)) {
+        const id = m[1], kindIn = m[2].toLowerCase(), kind = FLOW_KINDS.find((k) => k.toLowerCase() === kindIn) || KIND_ALIASES[kindIn];
+        if (!kind) return fail(`Unknown shape type "${m[2]}". Try: ${FLOW_KINDS.slice(0, 8).join(", ")}\u2026`);
+        if (page.byId.has(id)) return fail(`"${id}" is already used on this page.`);
+        const o = { label: "", columns: null, place: null, attrs: {} }, rest = m[3];
+        let p = 0;
+        while (p < rest.length) {
+          const c = rest[p];
+          if (/\s/.test(c)) {
+            p++;
+            continue;
+          }
+          if (c === '"') {
+            const s = readString(rest, p);
+            if (!s) return fail("A quoted label is not closed.");
+            o.label = s.v;
+            p = s.end;
+            continue;
+          }
+          if (c === "{") {
+            const e = closeAt(rest, p, "}");
+            if (e < 0) return fail("A column list is missing its closing }.");
+            o.columns = splitList(rest.slice(p + 1, e));
+            p = e + 1;
+            continue;
+          }
+          if (c === "@") {
+            const mm = rest.slice(p).match(/^@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?:\s+(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?))?/);
+            if (!mm) return fail("A placement looks like @ x,y or @ x,y WxH, in millimetres.");
+            o.place = { x: clampN(+mm[1], -1e4, 1e4, 0), y: clampN(+mm[2], -1e4, 1e4, 0), w: mm[3] != null ? clampN(+mm[3], 2, 2e3, 40) : null, h: mm[4] != null ? clampN(+mm[4], 2, 2e3, 20) : null };
+            p += mm[0].length;
+            continue;
+          }
+          if (c === "[") {
+            const e = closeAt(rest, p, "]");
+            if (e < 0) return fail("A settings list is missing its closing ].");
+            const a = parseAttrs(rest.slice(p + 1, e), SHAPE_ATTRS, fail);
+            if (!a) return;
+            Object.assign(o.attrs, a);
+            p = e + 1;
+            continue;
+          }
+          return fail(`Unexpected "${rest.slice(p, p + 15).trim()}" in the shape line.`);
+        }
+        if (kind === "table" && !o.columns) o.columns = ["column"];
+        if (kind !== "table" && o.columns) return fail("Only tables have a { column; list }.");
+        const d = { id, kind, label: o.label, columns: o.columns, place: o.place, attrs: o.attrs, line: i };
+        page.shapes.push(d);
+        page.byId.set(id, d);
+        page.lastShapeLine = i;
+        return;
+      }
+      if (m = code.match(/^([A-Za-z_][\w-]*)\s+(\S+)\s+([A-Za-z_][\w-]*)(.*)$/)) {
+        const base = parseConnector(m[2]);
+        if (!base) return fail(`"${m[2]}" is not a connection. Try -> for a sequence, -data-> for data flow, ..> for a dependency or ||--o{ for one to many.`);
+        if (m[1] === m[3]) return fail("A connection needs two different shapes.");
+        const e = { from: m[1], to: m[3], ...base, means: "", stroke: null, weight: null, label: "", line: i };
+        let r = m[4].trim();
+        if (r.startsWith("[")) {
+          const end = closeAt(r, 0, "]");
+          if (end < 0) return fail("A settings list is missing its closing ].");
+          const a = parseAttrs(r.slice(1, end), EDGE_ATTRS, fail);
+          if (!a) return;
+          Object.assign(e, a);
+          r = r.slice(end + 1).trim();
+        }
+        if (r.startsWith(":")) {
+          r = r.slice(1).trim();
+          if (r.startsWith('"')) {
+            const s = readString(r, 0);
+            if (!s) return fail("The label is not closed.");
+            e.label = s.v;
+            r = r.slice(s.end).trim();
+          } else {
+            e.label = r;
+            r = "";
+          }
+        }
+        if (r) return fail(`Unexpected "${r.slice(0, 15)}" after the connection.`);
+        page.edges.push(e);
+        page.edgeByLine.set(i, e);
+        page.lastEdgeLine = i;
+        return;
+      }
+      fail("This line is not a page, shape, connection or key.");
+    });
+    if (!ast.pages.length) {
+      newPage("Page-1", null);
+      page.endLine = lines.length - 1;
+    }
+    for (const p of ast.pages) for (const e of p.edges) for (const id of [e.from, e.to]) if (!p.byId.has(id)) {
+      const d = { id, kind: "process", label: id, columns: null, place: null, attrs: {}, line: null, implicit: true };
+      p.shapes.push(d);
+      p.byId.set(id, d);
+    }
+    return ast;
+  }
+  var orderedAttrs = (a, keys) => Object.fromEntries(keys.filter((k) => a && a[k] != null && a[k] !== "").map((k) => [k, a[k]]));
+  var attrStr = (a) => {
+    const p = Object.entries(a).map(([k, v]) => `${k}=${/^[#\w.]+$/.test(String(v)) ? v : qs(v)}`);
+    return p.length ? "[" + p.join(" ") + "]" : "";
+  };
+  var colText = (c) => /^[^;,{}"\s#](?:[^;,{}"#]*[^;,{}"\s#])?$/.test(c) ? c : qs(c);
+  function shapeStmt(o) {
+    let s = `${o.id}: ${o.kind}`;
+    if (o.label) s += " " + qs(o.label);
+    if (o.kind === "table") s += " { " + (o.columns || []).map(colText).join("; ") + " }";
+    if (o.place) s += ` @ ${mmN(o.place.x)},${mmN(o.place.y)}` + (o.place.w != null ? ` ${mmN(o.place.w)}x${mmN(o.place.h)}` : "");
+    const a = attrStr(orderedAttrs(o.attrs, SHAPE_ATTRS));
+    return a ? s + " " + a : s;
+  }
+  function edgeStmt(e) {
+    const t = resolveType(e), a = {};
+    let tok;
+    if (t === "er") tok = CARD_L_TOK[e.start] + (e.style === "solid" ? "--" : "..") + CARD_R_TOK[e.end];
+    else if (t === "custom") {
+      tok = "--";
+      Object.assign(a, { style: e.style, start: e.start, end: e.end });
+    } else tok = CONN[t].token;
+    const elbow = e.route === "elbow";
+    Object.assign(a, orderedAttrs(
+      { stroke: e.stroke, weight: e.weight, means: e.means, route: elbow ? "elbow" : null, via: elbow && e.via && e.via.length ? viaToStr(e.via) : null },
+      ["stroke", "weight", "means", "route", "via"]
+    ));
+    let s = `${e.from} ${tok} ${e.to}`;
+    const as = attrStr(a);
+    if (as) s += " " + as;
+    if (e.label) s += " : " + qs(e.label);
+    return s;
+  }
+  var keyStmt = (k) => `key ${qs(k.title || "Key")}` + (k.place ? ` @ ${mmN(k.place.x)},${mmN(k.place.y)}` : "");
+  var pageStmt = (p) => `page ${qs(p.name)}` + (p.size ? ` size ${mmN(p.size[0])}x${mmN(p.size[1])}` : "") + (p.direction && p.direction !== "TB" ? ` direction ${p.direction}` : "");
+  var tableH = (cols) => tableHeight(Math.max(1, (cols || []).length)) * 25.4;
+  function declObj(d) {
+    if (d.implicit) return { id: d.id, kind: "process", label: d.id, place: null, attrs: {} };
+    const place2 = d.place ? { ...d.place } : null;
+    if (place2 && d.kind === "table" && place2.w != null) place2.h = tableH(d.columns);
+    return { id: d.id, kind: d.kind, label: d.label || "", columns: d.columns, place: place2, attrs: d.attrs };
+  }
+  function autoSizeMM(o) {
+    const s = sizeFor({ kind: o.kind, label: o.label || "", columns: o.columns });
+    return { w: s.w * 25.4, h: o.kind === "table" ? tableH(o.columns) : s.h * 25.4 };
+  }
+  function uniqueFid(base, used) {
+    let b = String(base || "shape").toLowerCase().normalize("NFKD").replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24) || "shape";
+    if (!/^[a-z_]/.test(b)) b = "s_" + b;
+    if (["key", "page", "flow"].includes(b)) b += "_1";
+    let id = b, n = 2;
+    while (used.has(id)) id = `${b}_${n++}`;
+    return id;
+  }
+  function init2() {
+    FLOW_KINDS = Object.keys(SHAPES).filter((k) => !/^table(Header|Row)$/.test(k));
+  }
+
   // src/js/formats/export.js
   var FMT = {
     mermaid: { name: "Mermaid flowchart", ext: "mmd", mime: "text/plain" },
@@ -1364,6 +1865,35 @@ button:disabled{opacity:.55;cursor:default}
     }
     return "process";
   }
+  function iconPicture(id, b) {
+    const g = document.querySelector(`#layer > [data-id="${id}"]`);
+    if (!g || b.x1 - b.x0 < 1 || b.y1 - b.y0 < 1) return null;
+    const c = g.cloneNode(true);
+    for (const t of c.querySelectorAll("text")) t.remove();
+    for (const p of c.querySelectorAll('path[fill="transparent"],path[stroke="transparent"]')) p.remove();
+    if (!c.querySelector("path,circle,ellipse,rect,polygon,polyline,line")) return null;
+    toIconOrigin(c, b.x0, b.y0);
+    const r = (v) => +v.toFixed(2), svgText = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${r(b.x1 - b.x0)} ${r(b.y1 - b.y0)}">${c.innerHTML}</svg>`;
+    return "data:image/svg+xml;base64," + base64(new TextEncoder().encode(svgText));
+  }
+  function base64(bytes) {
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode(...bytes.subarray(i, i + 32768));
+    return btoa(s);
+  }
+  function toIconOrigin(root, x0, y0) {
+    const fx = (v) => (+v - x0).toFixed(1), fy = (v) => (+v - y0).toFixed(1), num2 = "(-?\\d+(?:\\.\\d+)?(?:e-?\\d+)?)";
+    const pair = new RegExp(num2 + "[ ,]+" + num2, "g");
+    for (const p of root.querySelectorAll("path")) p.setAttribute("d", p.getAttribute("d").replace(pair, (_, x, y) => fx(x) + " " + fy(y)));
+    for (const el of root.querySelectorAll("*")) for (const [ax, ay] of [["cx", "cy"], ["x", "y"], ["x1", "y1"], ["x2", "y2"]]) {
+      if (el.hasAttribute(ax)) el.setAttribute(ax, fx(el.getAttribute(ax)));
+      if (el.hasAttribute(ay)) el.setAttribute(ay, fy(el.getAttribute(ay)));
+    }
+  }
+  function iconOfOwn(el) {
+    const d = userV(el, "FlowIconData");
+    return d && ICON_DATA.test(d) ? d : null;
+  }
   function visioElbow(el, sh) {
     const ms = sh.mid && S.masters[sh.mid], rs = num(sh, "ShapeRouteStyle", 0);
     if (rs === 2 || rs === 16) return false;
@@ -1409,6 +1939,12 @@ button:disabled{opacity:.55;cursor:default}
       } else if (el.getAttribute("Type") === "Group") n.label = [shapeText(sh), ...[...el.getElementsByTagNameNS(NS, "Shape")].map((c) => shapeText(shapeCtx(c, sh.mid)))].filter(Boolean).join("\n");
       else n.label = shapeText(sh);
       if (kind === "text" && !n.label.trim()) continue;
+      const pic = icon ? iconPicture(id, b) : iconOfOwn(el);
+      if (pic) {
+        n.icon = pic;
+        n.iconName = icon ? S.masters[sh.mid].name : userV(el, "FlowIcon");
+        n.iconKey = icon ? `${sh.mid}|${n.w.toFixed(2)}x${n.h.toFixed(2)}` : pic;
+      }
       g.nodes.push(n);
       byId[id] = n;
     }
@@ -1861,497 +2397,8 @@ ${cells.map((c) => "        " + c).join("\n")}
     return { ermandone: "one", erone: "one", erzerotoone: "zeroOne", eronetomany: "oneMany", erzerotomany: "zeroMany", ermany: "zeroMany", none: "none" }[a] || "arrow";
   }
   var EXPORTERS;
-  function init2() {
-    EXPORTERS = { mermaid: toMermaid, plantuml: toPlantUml, activity: toActivity, dot: toDot, drawio: toDrawio };
-  }
-
-  // src/js/layout.js
-  function sizeFor(n) {
-    const T = SHAPES[n.kind] || SHAPES.process, text = fullLabel(n).split("\n"), CH = 0.075;
-    const longest = Math.max(1, ...text.map((l) => l.length));
-    if (n.kind === "table") return { w: Math.max(TABLE.w, longest * CH + 0.3), h: tableHeight(Math.max(1, (n.columns || []).length)) };
-    if (n.kind === "user" || n.kind === "server") return { w: T.w, h: T.h };
-    let w = Math.max(T.w, Math.min(3, longest * CH + 0.4));
-    const rows = text.reduce((s, l) => s + Math.max(1, Math.ceil(l.length * CH / Math.max(w - 0.3, 0.5))), 0);
-    let h = Math.max(T.h, rows * 0.22 + 0.3);
-    if (n.kind === "text") return { w: Math.min(3, longest * CH + 0.3), h: rows * 0.22 + 0.1 };
-    if (n.kind === "decision") {
-      w = Math.max(w * 1.35, 1.5);
-      h = Math.max(h * 1.4, 1);
-    }
-    return { w, h };
-  }
-  function layoutGraph(g) {
-    if (g.positioned) {
-      for (const n of g.nodes) {
-        n.w = clampN(n.w, 0.1, 20, 1.5);
-        n.h = clampN(n.h, 0.1, 20, 0.75);
-        n.x = clampN(n.x, -1e4, 1e4, 0);
-        n.y = clampN(n.y, -1e4, 1e4, 0);
-        if (n.kind === "table") n.h = tableHeight(Math.max(1, (n.columns || []).length));
-      }
-    } else {
-      const N = g.nodes.length, idx = new Map(g.nodes.map((n, i) => [n.id, i])), outs = g.nodes.map(() => []), linked = new Array(N).fill(false);
-      for (const n of g.nodes) if (n.w == null || n.h == null) Object.assign(n, sizeFor(n));
-      g.edges.forEach((e, k) => {
-        const a = idx.get(e.from), b = idx.get(e.to);
-        if (a == null || b == null || a === b) return;
-        outs[a].push([b, k]);
-        linked[a] = linked[b] = true;
-      });
-      const state2 = new Array(N).fill(0), back = /* @__PURE__ */ new Set(), indeg = new Array(N).fill(0);
-      for (const o of outs) for (const [b] of o) indeg[b]++;
-      const dfs = (s) => {
-        const st = [[s, 0]];
-        state2[s] = 1;
-        while (st.length) {
-          const top = st[st.length - 1], [v, i] = top;
-          if (i < outs[v].length) {
-            top[1]++;
-            const [w, k] = outs[v][i];
-            if (state2[w] === 1) back.add(k);
-            else if (!state2[w]) {
-              state2[w] = 1;
-              st.push([w, 0]);
-            }
-          } else {
-            state2[v] = 2;
-            st.pop();
-          }
-        }
-      };
-      for (let i = 0; i < N; i++) if (!indeg[i] && !state2[i]) dfs(i);
-      for (let i = 0; i < N; i++) if (!state2[i]) dfs(i);
-      const succ = g.nodes.map(() => []), pred = g.nodes.map(() => []);
-      for (let a = 0; a < N; a++) for (const [b, k] of outs[a]) if (!back.has(k)) {
-        succ[a].push(b);
-        pred[b].push(a);
-      }
-      const rank = new Array(N).fill(0), deg = pred.map((x) => x.length), q = [];
-      for (let i = 0; i < N; i++) if (!deg[i]) q.push(i);
-      while (q.length) {
-        const v = q.shift();
-        for (const w of succ[v]) {
-          rank[w] = Math.max(rank[w], rank[v] + 1);
-          if (--deg[w] === 0) q.push(w);
-        }
-      }
-      const maxR = Math.max(0, ...rank.filter((_, i) => linked[i])), anyLinked = linked.some(Boolean);
-      for (let i = 0; i < N; i++) if (!linked[i]) rank[i] = anyLinked ? maxR + 1 : 0;
-      const layers = [];
-      for (let i = 0; i < N; i++) (layers[rank[i]] = layers[rank[i]] || []).push(i);
-      const pos = new Array(N);
-      layers.forEach((Lr) => Lr && Lr.forEach((v, j) => pos[v] = j));
-      const bary = (v, nb) => nb[v].length ? nb[v].reduce((s, u) => s + pos[u], 0) / nb[v].length : pos[v];
-      for (let it = 0; it < 8; it++) {
-        const down = it % 2 === 0, nb = down ? pred : succ;
-        for (let r0 = 0; r0 < layers.length; r0++) {
-          const r = down ? r0 : layers.length - 1 - r0, Lr = layers[r];
-          if (!Lr) continue;
-          Lr.sort((a, b) => bary(a, nb) - bary(b, nb));
-          Lr.forEach((v, j) => pos[v] = j);
-        }
-      }
-      const horiz = g.direction === "LR" || g.direction === "RL", GAP_MAIN = 0.6, GAP_CROSS = 0.45;
-      const main = (v) => horiz ? g.nodes[v].w : g.nodes[v].h, cross = (v) => horiz ? g.nodes[v].h : g.nodes[v].w;
-      let offset = 0;
-      for (const Lr of layers) {
-        if (!Lr) continue;
-        const size = Math.max(...Lr.map(main)), total = Lr.reduce((s, v) => s + cross(v), 0) + GAP_CROSS * (Lr.length - 1);
-        let c = -total / 2;
-        for (const v of Lr) {
-          const n = g.nodes[v], m = offset + (size - main(v)) / 2;
-          if (horiz) {
-            n.x = m;
-            n.y = c;
-          } else {
-            n.x = c;
-            n.y = m;
-          }
-          c += cross(v) + GAP_CROSS;
-        }
-        offset += size + GAP_MAIN;
-      }
-      const ctr = (v) => horiz ? g.nodes[v].y + g.nodes[v].h / 2 : g.nodes[v].x + g.nodes[v].w / 2;
-      const setCtr = (v, c) => {
-        const n = g.nodes[v];
-        if (horiz) n.y = c - n.h / 2;
-        else n.x = c - n.w / 2;
-      };
-      for (const nb of [pred, succ, pred, succ]) {
-        const order = nb === pred ? layers : [...layers].reverse();
-        for (const Lr of order) {
-          if (!Lr) continue;
-          const want = Lr.map((v) => nb[v].length ? nb[v].reduce((s, u) => s + ctr(u), 0) / nb[v].length : ctr(v)), a = [], b = [];
-          let edge = -Infinity;
-          Lr.forEach((v, i) => {
-            a[i] = Math.max(want[i], edge + GAP_CROSS + cross(v) / 2);
-            edge = a[i] + cross(v) / 2;
-          });
-          edge = Infinity;
-          for (let i = Lr.length - 1; i >= 0; i--) {
-            const v = Lr[i];
-            b[i] = Math.min(want[i], edge - GAP_CROSS - cross(v) / 2);
-            edge = b[i] - cross(v) / 2;
-          }
-          Lr.forEach((v, i) => setCtr(v, (a[i] + b[i]) / 2));
-        }
-      }
-      if (g.direction === "BT" || g.direction === "RL") for (const n of g.nodes) {
-        if (horiz) n.x = offset - n.x - n.w;
-        else n.y = offset - n.y - n.h;
-      }
-    }
-    const mx = Math.min(...g.nodes.map((n) => n.x)), my = Math.min(...g.nodes.map((n) => n.y));
-    for (const n of g.nodes) {
-      n.x -= mx;
-      n.y -= my;
-    }
-  }
-
-  // src/js/flow/language.js
-  var KIND_ALIASES = {
-    rect: "process",
-    box: "process",
-    step: "process",
-    diamond: "decision",
-    start: "terminator",
-    end: "terminator",
-    stadium: "terminator",
-    db: "database",
-    cylinder: "database",
-    doc: "document",
-    docs: "multidoc",
-    person: "user",
-    actor: "user",
-    component: "api",
-    system: "api",
-    hexagon: "preparation",
-    circle: "ellipse",
-    label: "text",
-    note: "text",
-    screen: "mobile",
-    input: "field",
-    select: "dropdown"
-  };
-  var FLOW_KINDS;
-  var FLOW_ID = /^[A-Za-z_][\w-]*$/;
-  var SHAPE_ATTRS = ["fill", "stroke", "text", "weight"];
-  var EDGE_ATTRS = ["style", "start", "end", "stroke", "weight", "means", "route", "via"];
-  var qs = (s) => '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n|[\u2028\u2029]/g, "\\n") + '"';
-  var unescapeStr = (s) => s.replace(/\\(.)/g, (_, c) => c === "n" ? "\n" : c);
-  var mmN = (v) => String(Math.round(v * 10) / 10);
-  function readString(s, p) {
-    let i = p + 1, v = "";
-    while (i < s.length && s[i] !== '"') {
-      if (s[i] === "\\" && i + 1 < s.length) {
-        v += s[i] + s[i + 1];
-        i += 2;
-      } else v += s[i++];
-    }
-    return i < s.length ? { v: unescapeStr(v), end: i + 1 } : null;
-  }
-  function closeAt(s, p, ch) {
-    let q = false;
-    for (let i = p + 1; i < s.length; i++) {
-      if (q && s[i] === "\\") {
-        i++;
-        continue;
-      }
-      if (s[i] === '"') q = !q;
-      else if (!q && s[i] === ch) return i;
-    }
-    return -1;
-  }
-  function splitComment(line) {
-    let q = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (q && c === "\\") {
-        i++;
-        continue;
-      }
-      if (c === '"') q = !q;
-      else if (c === "#" && !q && (i === 0 || /\s/.test(line[i - 1]))) return { code: line.slice(0, i), comment: line.slice(i) };
-    }
-    return { code: line, comment: "" };
-  }
-  function splitList(s) {
-    const out = [];
-    let cur = "", q = false;
-    for (let i = 0; i < s.length; i++) {
-      const c = s[i];
-      if (q && c === "\\") {
-        cur += c + (s[i + 1] || "");
-        i++;
-        continue;
-      }
-      if (c === '"') q = !q;
-      if (!q && (c === ";" || c === ",")) {
-        out.push(cur);
-        cur = "";
-      } else cur += c;
-    }
-    out.push(cur);
-    return out.map((x) => x.trim()).filter(Boolean).map((x) => /^".*"$/.test(x) ? unescapeStr(x.slice(1, -1)) : x);
-  }
-  function parseAttrs(s, allowed, fail) {
-    const a = {}, re = /([A-Za-z][\w-]*)\s*=\s*("(?:[^"\\]|\\.)*"|[^\s,]+)/g;
-    let m, rest = s;
-    while (m = re.exec(s)) {
-      const k = m[1].toLowerCase();
-      let v = m[2];
-      if (v.startsWith('"')) v = unescapeStr(v.slice(1, -1));
-      if (!allowed.includes(k)) return fail(`Unknown setting "${m[1]}". Use ${allowed.join(", ")}.`);
-      if ((k === "fill" || k === "stroke" || k === "text") && !/^#[0-9a-f]{6}$/i.test(v)) return fail(`${k} needs a colour like #1F6F78.`);
-      if (k === "weight") {
-        const w = +v;
-        if (!(w >= 0.25 && w <= 12)) return fail("weight is a line thickness in points, from 0.25 to 12.");
-        v = w;
-      }
-      if (k === "style" && !LINE_STYLES[v]) return fail("style is solid, dashed or dotted.");
-      if ((k === "start" || k === "end") && !MARKERS[v]) return fail(`${k} is one of: ${Object.keys(MARKERS).join(", ")}.`);
-      if (k === "route" && v !== "straight" && v !== "elbow") return fail("route is straight or elbow.");
-      if (k === "via") {
-        v = parseVia(v);
-        if (!v) return fail('via lists bend points in mm from the top-left of the page, like via="40,20 40,60".');
-      }
-      a[k] = typeof v === "string" && /^#/.test(v) ? v.toUpperCase() : v;
-      rest = rest.replace(m[0], "");
-    }
-    if (rest.replace(/[\s,]/g, "")) return fail(`Could not read the settings "${rest.trim()}".`);
-    return a;
-  }
-  function parseConnector(tok) {
-    for (const [type, c] of Object.entries(CONN)) if (c.token === tok) return { style: c.style, start: c.start, end: c.end };
-    const m = tok.match(/^([|}][|o])(--|\.\.)([|o][|{])$/);
-    if (m) return { style: m[2] === "--" ? "solid" : "dashed", start: CARD_L[m[1]], end: CARD_R[m[3]] };
-    return null;
-  }
-  function parseFlow(text) {
-    const lines = text.split("\n"), ast = { pages: [], errors: [] };
-    let page = null;
-    const newPage = (name, line) => {
-      page = {
-        name,
-        size: null,
-        direction: "TB",
-        headerLine: line,
-        shapes: [],
-        byId: /* @__PURE__ */ new Map(),
-        edges: [],
-        edgeByLine: /* @__PURE__ */ new Map(),
-        key: null,
-        lastShapeLine: null,
-        lastEdgeLine: null,
-        endLine: line ?? 0
-      };
-      ast.pages.push(page);
-      return page;
-    };
-    lines.forEach((raw, i) => {
-      const code = splitComment(raw).code.trim();
-      if (page) page.endLine = i;
-      if (!code) return;
-      const fail = (msg) => {
-        ast.errors.push({ line: i, msg });
-        return null;
-      };
-      let m;
-      if (m = code.match(/^flow\s+(\S+)$/i)) {
-        if (ast.pages.length) fail('"flow" belongs at the top of the file.');
-        else if (m[1] !== "1") fail(`This editor reads version 1 flow files, not version ${m[1]}.`);
-        return;
-      }
-      if (m = code.match(/^page\b\s*(.*)$/i)) {
-        const rest = m[1], s = rest.startsWith('"') && readString(rest, 0);
-        if (!s) return fail('A page needs a name in quotes, like page "Onboarding".');
-        const p = newPage(s.v, i);
-        let r = rest.slice(s.end), mm;
-        while (r = r.trim()) {
-          if (mm = r.match(/^size\s+(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i)) {
-            p.size = [clampN(+mm[1], 50, 5e3, 297), clampN(+mm[2], 50, 5e3, 210)];
-            r = r.slice(mm[0].length);
-          } else if (mm = r.match(/^direction\s+(TB|TD|LR|BT|RL)\b/i)) {
-            const d = mm[1].toUpperCase();
-            p.direction = d === "TD" ? "TB" : d;
-            r = r.slice(mm[0].length);
-          } else return fail(`Unexpected "${r.slice(0, 20)}" in the page line. Use size WxH (mm) and direction TB, LR, BT or RL.`);
-        }
-        return;
-      }
-      if (!page) newPage("Page-1", null);
-      if (m = code.match(/^key\b(?!\s*:)\s*(.*)$/i)) {
-        if (page.key) return fail("A page has one key.");
-        const k = { title: "Key", place: null, line: i };
-        let r = m[1].trim(), mm;
-        if (r.startsWith('"')) {
-          const s = readString(r, 0);
-          if (!s) return fail("The key title is not closed.");
-          k.title = s.v;
-          r = r.slice(s.end).trim();
-        }
-        if (r) {
-          if (!(mm = r.match(/^@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/))) return fail('A key line looks like key "Key" @ x,y.');
-          k.place = { x: +mm[1], y: +mm[2] };
-        }
-        page.key = k;
-        page.lastShapeLine = i;
-        return;
-      }
-      if (m = code.match(/^([A-Za-z_][\w-]*)\s*:\s*([A-Za-z]+)\b(.*)$/)) {
-        const id = m[1], kindIn = m[2].toLowerCase(), kind = FLOW_KINDS.find((k) => k.toLowerCase() === kindIn) || KIND_ALIASES[kindIn];
-        if (!kind) return fail(`Unknown shape type "${m[2]}". Try: ${FLOW_KINDS.slice(0, 8).join(", ")}\u2026`);
-        if (page.byId.has(id)) return fail(`"${id}" is already used on this page.`);
-        const o = { label: "", columns: null, place: null, attrs: {} }, rest = m[3];
-        let p = 0;
-        while (p < rest.length) {
-          const c = rest[p];
-          if (/\s/.test(c)) {
-            p++;
-            continue;
-          }
-          if (c === '"') {
-            const s = readString(rest, p);
-            if (!s) return fail("A quoted label is not closed.");
-            o.label = s.v;
-            p = s.end;
-            continue;
-          }
-          if (c === "{") {
-            const e = closeAt(rest, p, "}");
-            if (e < 0) return fail("A column list is missing its closing }.");
-            o.columns = splitList(rest.slice(p + 1, e));
-            p = e + 1;
-            continue;
-          }
-          if (c === "@") {
-            const mm = rest.slice(p).match(/^@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?:\s+(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?))?/);
-            if (!mm) return fail("A placement looks like @ x,y or @ x,y WxH, in millimetres.");
-            o.place = { x: clampN(+mm[1], -1e4, 1e4, 0), y: clampN(+mm[2], -1e4, 1e4, 0), w: mm[3] != null ? clampN(+mm[3], 2, 2e3, 40) : null, h: mm[4] != null ? clampN(+mm[4], 2, 2e3, 20) : null };
-            p += mm[0].length;
-            continue;
-          }
-          if (c === "[") {
-            const e = closeAt(rest, p, "]");
-            if (e < 0) return fail("A settings list is missing its closing ].");
-            const a = parseAttrs(rest.slice(p + 1, e), SHAPE_ATTRS, fail);
-            if (!a) return;
-            Object.assign(o.attrs, a);
-            p = e + 1;
-            continue;
-          }
-          return fail(`Unexpected "${rest.slice(p, p + 15).trim()}" in the shape line.`);
-        }
-        if (kind === "table" && !o.columns) o.columns = ["column"];
-        if (kind !== "table" && o.columns) return fail("Only tables have a { column; list }.");
-        const d = { id, kind, label: o.label, columns: o.columns, place: o.place, attrs: o.attrs, line: i };
-        page.shapes.push(d);
-        page.byId.set(id, d);
-        page.lastShapeLine = i;
-        return;
-      }
-      if (m = code.match(/^([A-Za-z_][\w-]*)\s+(\S+)\s+([A-Za-z_][\w-]*)(.*)$/)) {
-        const base = parseConnector(m[2]);
-        if (!base) return fail(`"${m[2]}" is not a connection. Try -> for a sequence, -data-> for data flow, ..> for a dependency or ||--o{ for one to many.`);
-        if (m[1] === m[3]) return fail("A connection needs two different shapes.");
-        const e = { from: m[1], to: m[3], ...base, means: "", stroke: null, weight: null, label: "", line: i };
-        let r = m[4].trim();
-        if (r.startsWith("[")) {
-          const end = closeAt(r, 0, "]");
-          if (end < 0) return fail("A settings list is missing its closing ].");
-          const a = parseAttrs(r.slice(1, end), EDGE_ATTRS, fail);
-          if (!a) return;
-          Object.assign(e, a);
-          r = r.slice(end + 1).trim();
-        }
-        if (r.startsWith(":")) {
-          r = r.slice(1).trim();
-          if (r.startsWith('"')) {
-            const s = readString(r, 0);
-            if (!s) return fail("The label is not closed.");
-            e.label = s.v;
-            r = r.slice(s.end).trim();
-          } else {
-            e.label = r;
-            r = "";
-          }
-        }
-        if (r) return fail(`Unexpected "${r.slice(0, 15)}" after the connection.`);
-        page.edges.push(e);
-        page.edgeByLine.set(i, e);
-        page.lastEdgeLine = i;
-        return;
-      }
-      fail("This line is not a page, shape, connection or key.");
-    });
-    if (!ast.pages.length) {
-      newPage("Page-1", null);
-      page.endLine = lines.length - 1;
-    }
-    for (const p of ast.pages) for (const e of p.edges) for (const id of [e.from, e.to]) if (!p.byId.has(id)) {
-      const d = { id, kind: "process", label: id, columns: null, place: null, attrs: {}, line: null, implicit: true };
-      p.shapes.push(d);
-      p.byId.set(id, d);
-    }
-    return ast;
-  }
-  var orderedAttrs = (a, keys) => Object.fromEntries(keys.filter((k) => a && a[k] != null && a[k] !== "").map((k) => [k, a[k]]));
-  var attrStr = (a) => {
-    const p = Object.entries(a).map(([k, v]) => `${k}=${/^[#\w.]+$/.test(String(v)) ? v : qs(v)}`);
-    return p.length ? "[" + p.join(" ") + "]" : "";
-  };
-  var colText = (c) => /^[^;,{}"\s#](?:[^;,{}"#]*[^;,{}"\s#])?$/.test(c) ? c : qs(c);
-  function shapeStmt(o) {
-    let s = `${o.id}: ${o.kind}`;
-    if (o.label) s += " " + qs(o.label);
-    if (o.kind === "table") s += " { " + (o.columns || []).map(colText).join("; ") + " }";
-    if (o.place) s += ` @ ${mmN(o.place.x)},${mmN(o.place.y)}` + (o.place.w != null ? ` ${mmN(o.place.w)}x${mmN(o.place.h)}` : "");
-    const a = attrStr(orderedAttrs(o.attrs, SHAPE_ATTRS));
-    return a ? s + " " + a : s;
-  }
-  function edgeStmt(e) {
-    const t = resolveType(e), a = {};
-    let tok;
-    if (t === "er") tok = CARD_L_TOK[e.start] + (e.style === "solid" ? "--" : "..") + CARD_R_TOK[e.end];
-    else if (t === "custom") {
-      tok = "--";
-      Object.assign(a, { style: e.style, start: e.start, end: e.end });
-    } else tok = CONN[t].token;
-    const elbow = e.route === "elbow";
-    Object.assign(a, orderedAttrs(
-      { stroke: e.stroke, weight: e.weight, means: e.means, route: elbow ? "elbow" : null, via: elbow && e.via && e.via.length ? viaToStr(e.via) : null },
-      ["stroke", "weight", "means", "route", "via"]
-    ));
-    let s = `${e.from} ${tok} ${e.to}`;
-    const as = attrStr(a);
-    if (as) s += " " + as;
-    if (e.label) s += " : " + qs(e.label);
-    return s;
-  }
-  var keyStmt = (k) => `key ${qs(k.title || "Key")}` + (k.place ? ` @ ${mmN(k.place.x)},${mmN(k.place.y)}` : "");
-  var pageStmt = (p) => `page ${qs(p.name)}` + (p.size ? ` size ${mmN(p.size[0])}x${mmN(p.size[1])}` : "") + (p.direction && p.direction !== "TB" ? ` direction ${p.direction}` : "");
-  var tableH = (cols) => tableHeight(Math.max(1, (cols || []).length)) * 25.4;
-  function declObj(d) {
-    if (d.implicit) return { id: d.id, kind: "process", label: d.id, place: null, attrs: {} };
-    const place2 = d.place ? { ...d.place } : null;
-    if (place2 && d.kind === "table" && place2.w != null) place2.h = tableH(d.columns);
-    return { id: d.id, kind: d.kind, label: d.label || "", columns: d.columns, place: place2, attrs: d.attrs };
-  }
-  function autoSizeMM(o) {
-    const s = sizeFor({ kind: o.kind, label: o.label || "", columns: o.columns });
-    return { w: s.w * 25.4, h: o.kind === "table" ? tableH(o.columns) : s.h * 25.4 };
-  }
-  function uniqueFid(base, used) {
-    let b = String(base || "shape").toLowerCase().normalize("NFKD").replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24) || "shape";
-    if (!/^[a-z_]/.test(b)) b = "s_" + b;
-    if (["key", "page", "flow"].includes(b)) b += "_1";
-    let id = b, n = 2;
-    while (used.has(id)) id = `${b}_${n++}`;
-    return id;
-  }
   function init3() {
-    FLOW_KINDS = Object.keys(SHAPES).filter((k) => !/^table(Header|Row)$/.test(k));
+    EXPORTERS = { mermaid: toMermaid, plantuml: toPlantUml, activity: toActivity, dot: toDot, drawio: toDrawio };
   }
 
   // src/js/flow/sync.js
@@ -2416,6 +2463,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       if (numEl(el, "LinePattern", 1) === 0) setCell(el, "LinePattern", 1);
     }
     if (a.weight) setCell(el, "LineWeight", a.weight / 72);
+    if (a.icon) setUser(el, "FlowIcon", a.icon);
     const tc = rowCellEl(el, "Character", "0", "Color");
     if (a.text && tc) tc.setAttribute("V", a.text);
   }
@@ -2580,7 +2628,8 @@ ${cells.map((c) => "        " + c).join("\n")}
           fill: T.bare ? null : diff(colour(cellV(sh, "FillForegnd", null), null), T.fill || DEF.fill),
           stroke: T.bare ? null : diff(colour(cellV(sh, "LineColor", null), null), DEF.line),
           text: diff(colour(rowV(sh, "Character", "0", "Color"), null), T.textColour || DEF.text),
-          weight: T.bare ? null : weightOf(sh)
+          weight: T.bare ? null : weightOf(sh),
+          icon: userV(el, "FlowIcon") || null
         };
       }
       let fid = userV(el, "FlowId");
@@ -4279,7 +4328,8 @@ ${cells.map((c) => "        " + c).join("\n")}
       const attrs = n.keepAttrs || (kind === "table" ? {} : {
         fill: hex(n.fill) && hex(n.fill) !== (T.fill || DEF.fill).toUpperCase() ? hex(n.fill) : null,
         stroke: hex(n.line) && hex(n.line) !== DEF.line.toUpperCase() ? hex(n.line) : null,
-        text: hex(n.textColour) && hex(n.textColour) !== (T.textColour || DEF.text).toUpperCase() ? hex(n.textColour) : null
+        text: hex(n.textColour) && hex(n.textColour) !== (T.textColour || DEF.text).toUpperCase() ? hex(n.textColour) : null,
+        icon: n.iconRef || null
       });
       lines.push(shapeStmt({ id: ids.get(n.id), kind, label: n.label || "", columns: kind === "table" ? n.columns && n.columns.length ? n.columns : ["column"] : null, place: place2, attrs }));
     }
@@ -4344,13 +4394,11 @@ ${cells.map((c) => "        " + c).join("\n")}
         S.pi = i;
         const pg = S.pages[i], g = pageGraph();
         const top = kids(kid(pg.doc.documentElement, "Shapes"), "Shape");
-        const redrawn = top.filter((el) => !is1D(shapeCtx(el, null)) && !roleOf(el)).length;
         const key = top.find((el) => roleOf(el) === "key");
         out.push({
           name: pg.name + (pg.bg ? " (background)" : ""),
           size: [pg.w * 25.4, pg.h * 25.4],
           g,
-          redrawn,
           key: key ? { title: userV(key, "FlowKeyTitle") || "Key", place: geoMM(key, pg) } : null
         });
       }
@@ -4363,6 +4411,7 @@ ${cells.map((c) => "        " + c).join("\n")}
   async function importVisio(buf, name, dest) {
     const pages = await readVisio(buf);
     if (!pages.some((p) => p.g.nodes.length)) throw new Error("no shapes were found in that drawing.");
+    const iconLines = nameIcons(pages.flatMap((p) => p.g.nodes));
     const ap2 = S.ast.pages[S.pi], used = new Set(ap2.shapes.map((d) => d.id));
     const pageText = (p, opts) => {
       const lines = graphStatements(p.g, { ox: 0, oy: 0, used: /* @__PURE__ */ new Set(), relabel: true, ...opts }).lines;
@@ -4393,15 +4442,48 @@ ${cells.map((c) => "        " + c).join("\n")}
       focus = S.ast.pages.length;
     }
     for (const p of rest) text = text.replace(/\s*$/, "\n") + newPage(p);
-    editDoc(text, focus);
-    const redrawn = pages.reduce((n, p) => n + p.redrawn, 0), warnings = pages.flatMap((p) => p.g.warnings);
-    toast(`Imported ${name}${pages.length > 1 ? ` (${plural(pages.length, "page")})` : ""}. ${plural(redrawn, "shape")} ${redrawn === 1 ? "was" : "were"} redrawn as the nearest editor shape; Visio-only artwork and formatting are not kept.` + (warnings.length ? " " + warnings.join(" ") : ""), 9e3);
+    editDoc(addIconLines(text, iconLines), focus);
+    const nodes = pages.flatMap((p) => p.g.nodes), icons = nodes.filter((n) => n.iconRef).length, warnings = pages.flatMap((p) => p.g.warnings);
+    toast(`Imported ${name}${pages.length > 1 ? ` (${plural(pages.length, "page")})` : ""}: ${plural(nodes.length, "shape")}` + (icons ? `, ${icons} of them icons kept as pictures` : "") + ". Shapes take the editor's nearest equivalent, so some Visio formatting is not kept." + (warnings.length ? " " + warnings.join(" ") : ""), 9e3);
+  }
+  function nameIcons(nodes) {
+    const known = new Map([...S.ast.icons].map(([name, data]) => [data, name])), taken = new Set(S.ast.icons.keys()), lines = [];
+    for (const n of nodes) {
+      if (!n.icon) continue;
+      let name = known.get(n.iconKey) || known.get(n.icon);
+      if (!name) {
+        const base = String(n.iconName || "icon").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").replace(/^(?=\d)/, "i_") || "icon";
+        name = base;
+        for (let i = 2; taken.has(name); i++) name = `${base}_${i}`;
+        taken.add(name);
+        known.set(n.icon, name);
+        if (n.iconKey) known.set(n.iconKey, name);
+        lines.push(iconStmt(name, n.icon));
+      }
+      n.iconRef = name;
+    }
+    return lines;
+  }
+  function addIconLines(text, lines) {
+    if (!lines.length) return text;
+    const L = text.split("\n"), at = L.findIndex((l) => /^\s*flow\s/i.test(l));
+    L.splice(at + 1, 0, ...lines);
+    return L.join("\n");
   }
   var uniquePageName = (base) => {
     let n = base, i = 2;
     while (S.ast.pages.some((p) => p.name === n)) n = `${base} (${i++})`;
     return n;
   };
+  function withIconData(doc) {
+    if (!S.ast.icons.size) return doc;
+    const copy = doc.cloneNode(true);
+    for (const el of copy.getElementsByTagNameNS(NS, "Shape")) {
+      const d = S.ast.icons.get(userV(el, "FlowIcon"));
+      if (d) setUser(el, "FlowIconData", d);
+    }
+    return copy;
+  }
   function vsdxFiles() {
     const V = `xmlns="${NS}" xmlns:r="${RNS}" xml:space="preserve"`, b = blankFiles(), files = {};
     for (const k of ["_rels/.rels", "docProps/core.xml", "docProps/app.xml", "visio/document.xml", "visio/_rels/document.xml.rels"]) files[k] = b[k];
@@ -4409,7 +4491,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     files["[Content_Types].xml"] = XML_DECL + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/visio/document.xml" ContentType="application/vnd.ms-visio.drawing.main+xml"/><Override PartName="/visio/pages/pages.xml" ContentType="application/vnd.ms-visio.pages+xml"/>' + S.pages.map((_, i) => `<Override PartName="/visio/pages/page${i + 1}.xml" ContentType="application/vnd.ms-visio.page+xml"/>`).join("") + '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>';
     files["visio/pages/pages.xml"] = XML_DECL + `<Pages ${V}>` + S.pages.map((p, i) => `<Page ID="${i}" NameU="${xmlEsc(p.name)}" Name="${xmlEsc(p.name)}" ViewScale="-1"><PageSheet LineStyle="0" FillStyle="0" TextStyle="0">${pg(p.w, p.h)}</PageSheet><Rel r:id="rId${i + 1}"/></Page>`).join("") + "</Pages>";
     files["visio/pages/_rels/pages.xml.rels"] = XML_DECL + `<Relationships xmlns="${PRNS}">` + S.pages.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.microsoft.com/visio/2010/relationships/page" Target="page${i + 1}.xml"/>`).join("") + "</Relationships>";
-    S.pages.forEach((p, i) => files[`visio/pages/page${i + 1}.xml`] = XML_DECL + ser(p.doc));
+    S.pages.forEach((p, i) => files[`visio/pages/page${i + 1}.xml`] = XML_DECL + ser(withIconData(p.doc)));
     return files;
   }
   async function buildVsdx() {
@@ -5259,6 +5341,11 @@ ${cells.map((c) => "        " + c).join("\n")}
     const lc = colour(cellV(sh, "LineColor", null), "#000000"), fc = colour(cellV(sh, "FillForegnd", null), "#FFFFFF");
     const lw = Math.max(num(sh, "LineWeight", 0.01) * PX, 0.6);
     const corners = [[0, 0], [W, 0], [W, H], [0, H]].map((q) => ap(m, q[0], q[1]));
+    const icon = !oneD && iconFor(el);
+    if (icon) {
+      drawIconShape(sh, g, id, corners, icon);
+      return;
+    }
     if (!oneD) g.appendChild(svgEl("path", {
       d: "M" + corners.map((q) => q.join(" ")).join("L") + "Z",
       fill: "transparent",
@@ -5331,30 +5418,54 @@ ${cells.map((c) => "        " + c).join("\n")}
       const style = parseInt(rowV(sh, "Character", "0", "Style"), 10) || 0;
       let wpx = Math.abs(tw) * scale - 8;
       if (oneD || wpx < 40) wpx = Math.max(wpx, 160);
-      const lines = wrap(txt, wpx, fs), lh = fs * 1.2;
       const ha = oneD ? 1 : parseInt(rowV(sh, "Paragraph", "0", "HorzAlign"), 10);
       const anchor = ha === 0 ? "start" : ha === 2 ? "end" : "middle", half = Math.max(Math.abs(tw) * scale / 2 - 4, 0);
       const tx = anchor === "start" ? c[0] - half : anchor === "end" ? c[0] + half : c[0];
-      const t = svgEl("text", {
-        x: tx,
-        y: c[1],
-        "font-size": fs,
-        "text-anchor": anchor,
-        fill: col,
-        "font-family": 'Calibri, "Segoe UI", Arial, sans-serif',
-        "font-weight": style & 1 ? "bold" : null,
-        "font-style": style & 2 ? "italic" : null,
-        "text-decoration": style & 4 ? "underline" : null
-      });
-      if (oneD) t.setAttribute("style", "paint-order:stroke;stroke:#FFFFFF;stroke-width:4px;stroke-linejoin:round");
-      lines.forEach((ln, i) => {
-        const ts = svgEl("tspan", { x: tx, dy: i === 0 ? -(lines.length - 1) * lh / 2 + fs * 0.35 : lh });
-        ts.textContent = ln;
-        t.appendChild(ts);
-      });
-      g.appendChild(t);
+      drawLabel(g, wrap(txt, wpx, fs), tx, c[1], { fs, anchor, col, style, halo: oneD });
     }
   }
+  function drawLabel(g, lines, tx, y, { fs, anchor = "middle", col, style = 0, halo = false, valign = "middle" }) {
+    const lh = fs * 1.2, first = valign === "top" ? fs : -(lines.length - 1) * lh / 2 + fs * 0.35;
+    const t = svgEl("text", {
+      x: tx,
+      y,
+      "font-size": fs,
+      "text-anchor": anchor,
+      fill: col,
+      "font-family": 'Calibri, "Segoe UI", Arial, sans-serif',
+      "font-weight": style & 1 ? "bold" : null,
+      "font-style": style & 2 ? "italic" : null,
+      "text-decoration": style & 4 ? "underline" : null
+    });
+    if (halo) t.setAttribute("style", "paint-order:stroke;stroke:#FFFFFF;stroke-width:4px;stroke-linejoin:round");
+    lines.forEach((ln, i) => {
+      const ts = svgEl("tspan", { x: tx, dy: i === 0 ? first : lh });
+      ts.textContent = ln;
+      t.appendChild(ts);
+    });
+    g.appendChild(t);
+  }
+  function drawIconShape(sh, g, id, corners, href) {
+    const xs = corners.map((q) => q[0]), ys = corners.map((q) => q[1]), b = { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+    g.appendChild(svgEl("path", {
+      d: "M" + corners.map((q) => q.join(" ")).join("L") + "Z",
+      fill: "transparent",
+      stroke: "transparent",
+      "stroke-width": HIT_PAD_PX * 2,
+      "vector-effect": "non-scaling-stroke"
+    }));
+    g.appendChild(svgEl("image", { href, x: b.x0, y: b.y0, width: b.x1 - b.x0, height: b.y1 - b.y0, preserveAspectRatio: "xMidYMid meet" }));
+    S.boxes[id] = b;
+    const txt = num(sh, "HideText", 0) ? "" : shapeText(sh);
+    if (!txt.trim()) return;
+    const size = parseFloat(rowV(sh, "Character", "0", "Size")), fs = Math.max((isFinite(size) ? size : 0.1389) * PX, 4);
+    const col = readableText(colour(rowV(sh, "Character", "0", "Color"), DEF.text), "#FFFFFF");
+    drawLabel(g, wrap(txt, Math.max(b.x1 - b.x0 + 40, 120), fs), (b.x0 + b.x1) / 2, b.y1 + 2, { fs, col, valign: "top" });
+  }
+  var iconFor = (el) => {
+    const n = userV(el, "FlowIcon");
+    return n && S.ast && S.ast.icons ? S.ast.icons.get(n) || null : null;
+  };
   function render() {
     const pg = pageCtx();
     if (!pg) return;
@@ -6053,7 +6164,7 @@ ${cells.map((c) => "        " + c).join("\n")}
   }
 
   // src/js/main.js
-  for (const init16 of [init12, init11, init9, init10, init13, init8, init2, init5, init6, init, init3, init4, init7, init14, init15]) init16();
+  for (const init16 of [init12, init11, init9, init10, init13, init8, init3, init5, init6, init, init2, init4, init7, init14, init15]) init16();
   newDoc();
   setPane(TP.open, TP.pinned);
   maybeStartTour();
