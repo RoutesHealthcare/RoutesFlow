@@ -51,14 +51,19 @@ button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
 .stage.connect #canvas{cursor:crosshair}
 #paper{fill:#FFFFFF;filter:drop-shadow(0 1px 3px rgba(0,0,0,.22))}
 #overlay{pointer-events:none}
-#overlay .selbox{fill:none;stroke:var(--sel);stroke-width:1.2;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+#overlay .selbox{fill:color-mix(in srgb,var(--sel) 9%,transparent);stroke:var(--sel);stroke-width:2.25;vector-effect:non-scaling-stroke}
+#overlay .selline{fill:none;stroke:var(--sel);stroke-width:9;opacity:.4;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+#overlay .groupbox{fill:none;stroke:var(--sel);stroke-width:1;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
+#overlay .selcount{fill:var(--sel)}
+#overlay .selcount-text{fill:var(--accent-ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-weight:600}
 #overlay .handle{fill:#FFFFFF;stroke:var(--sel);stroke-width:1.5;vector-effect:non-scaling-stroke;pointer-events:all;cursor:pointer}
 #overlay .ghost{stroke:var(--sel);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
-#overlay .selbox.extra{stroke-dasharray:2 3;opacity:.75}
+#overlay .selbox.extra{stroke-width:1.75}
+#overlay .selline.extra{opacity:.3}
 #overlay .marquee{fill:color-mix(in srgb,var(--sel) 10%,transparent);stroke:var(--sel);stroke-width:1;stroke-dasharray:3 2;vector-effect:non-scaling-stroke}
 #hover{pointer-events:none}
-#hover .hoverbox{fill:none;stroke:var(--sel);stroke-width:1;opacity:.6;vector-effect:non-scaling-stroke}
-#hover .hoverline{fill:none;stroke:var(--sel);stroke-width:7;opacity:.25;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+#hover .hoverbox{fill:none;stroke:var(--sel);stroke-width:1;stroke-dasharray:3 3;opacity:.7;vector-effect:non-scaling-stroke}
+#hover .hoverline{fill:none;stroke:var(--sel);stroke-width:6;opacity:.18;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 .stage.over-shape:not(.connect) #canvas{cursor:move}
 .stage.over-line:not(.connect) #canvas{cursor:pointer}
 .stage.panning #canvas{cursor:grab}
@@ -152,9 +157,6 @@ button:disabled{opacity:.55;cursor:default}
 .tour-target{outline:2px solid var(--sel)!important;outline-offset:2px;animation:tour-pulse 1.4s ease-in-out infinite}
 @keyframes tour-pulse{50%{outline-color:transparent}}
 @media (prefers-reduced-motion:reduce){.tour-target{animation:none}}
-#overlay .handle.seg{fill:var(--sel)}
-#overlay .handle.seg.ns{cursor:ns-resize}
-#overlay .handle.seg.ew{cursor:ew-resize}
 #overlay .handle.seg{fill:var(--sel)}
 #overlay .handle.seg.ns{cursor:ns-resize}
 #overlay .handle.seg.ew{cursor:ew-resize}

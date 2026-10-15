@@ -150,8 +150,21 @@ export function render(){
 export function canResize(el){ const sh=shapeCtx(el,null); return !is1D(sh)&&el.getAttribute('Type')!=='Group'&&Math.abs(num(sh,'Angle',0))<1e-6; }
 export function drawOverlay(){
   const ov=$('overlay'); ov.replaceChildren();
-  for(const id of S.selection){ const b=S.boxes[id]; if(!b) continue;
-    ov.appendChild(svgEl('rect',{x:b.x0,y:b.y0,width:Math.max(b.x1-b.x0,0.5),height:Math.max(b.y1-b.y0,0.5),class:id===S.sel?'selbox':'selbox extra'})); }
+  // a selected line is highlighted along its route; a selected shape gets a solid outline just outside it
+  const pad=4/S.zoom, all=[];
+  for(const id of S.selection){ const b=S.boxes[id]; if(!b) continue; all.push(b);
+    const lines=is1D(shapeCtx(S.elById[id],null))&&S.lines[id];
+    if(lines&&lines.length) for(const s of lines)
+      ov.appendChild(svgEl('path',{d:'M'+s.map(q=>q[0].toFixed(2)+' '+q[1].toFixed(2)).join('L'),class:id===S.sel?'selline':'selline extra'}));
+    else ov.appendChild(svgEl('rect',{x:b.x0-pad,y:b.y0-pad,width:Math.max(b.x1-b.x0,0.5)+2*pad,height:Math.max(b.y1-b.y0,0.5)+2*pad,
+      rx:3/S.zoom,class:id===S.sel?'selbox':'selbox extra'})); }
+  if(all.length>1){   // the whole selection, and how many items are in it
+    const x0=Math.min(...all.map(b=>b.x0))-3*pad, y0=Math.min(...all.map(b=>b.y0))-3*pad, x1=Math.max(...all.map(b=>b.x1))+3*pad, y1=Math.max(...all.map(b=>b.y1))+3*pad;
+    ov.appendChild(svgEl('rect',{x:x0,y:y0,width:x1-x0,height:y1-y0,class:'groupbox'}));
+    const fs=11/S.zoom, label=`${all.length} selected`, w=(label.length*0.62*11+12)/S.zoom, h=18/S.zoom, by=y0-h-2/S.zoom;
+    ov.appendChild(svgEl('rect',{x:x0,y:by,width:w,height:h,rx:h/2,class:'selcount'}));
+    const t=svgEl('text',{x:x0+w/2,y:by+h/2+fs*0.36,'font-size':fs,'text-anchor':'middle',class:'selcount-text'}); t.textContent=label; ov.appendChild(t);
+  }
   if(S.selection.size!==1||!S.boxes[S.sel]) return;   // handles only make sense for one object
   const b=S.boxes[S.sel], el=S.elById[S.sel], sh=shapeCtx(el,null), hs=10/S.zoom, pg=pageCtx();
   if(is1D(sh)){

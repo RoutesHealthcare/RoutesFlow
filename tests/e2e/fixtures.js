@@ -41,7 +41,8 @@ export class FlowApp{
       const pt=p.getPointAtLength(p.getTotalLength()/2), m=p.getScreenCTM(); return {x:pt.x*m.a+pt.y*m.c+m.e,y:pt.x*m.b+pt.y*m.d+m.f}; });
   }
   get title(){ return this.page.locator('#selTitle'); }
-  get selectionBoxes(){ return this.page.locator('#overlay .selbox'); }
+  /* one per selected item: an outline round a shape, or a highlight along a line */
+  get selectionBoxes(){ return this.page.locator('#overlay .selbox, #overlay .selline'); }
   get textEditor(){ return this.page.locator('#textEditor'); }
   async nothingSelected(){ await expect(this.page.locator('#propsShape')).toBeHidden(); }
   /* The diagram as .flow text, from the text pane */
