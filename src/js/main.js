@@ -16,10 +16,11 @@ import {init as initConnectionProps} from './connection-props.js';
 import {init as initTextPane, TP, setPane} from './text-pane.js';
 import {init as initToolbar} from './toolbar.js';
 import {init as initTutorial, maybeStartTour} from './tutorial.js';
+import {init as initIntellisense} from './intellisense.js';
 import {toast} from './core.js';
 import {newDoc} from './document.js';
 
-for(const init of [initShapes, initSelection, initTextEditor, initPointer, initPalette, initProperties, initFormatsExport, initFormatsImport, initDialogs, initFlowModel, initFlowLanguage, initConnectionProps, initTextPane, initToolbar, initTutorial]) init();
+for(const init of [initShapes, initSelection, initTextEditor, initPointer, initPalette, initProperties, initFormatsExport, initFormatsImport, initDialogs, initFlowModel, initFlowLanguage, initConnectionProps, initTextPane, initToolbar, initTutorial, initIntellisense]) init();
 
 newDoc(); setPane(TP.open,TP.pinned);
 maybeStartTour();

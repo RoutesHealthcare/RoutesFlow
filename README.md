@@ -20,6 +20,10 @@ handles re-attach either end. Moving a group of shapes moves the routes between 
 end keeps the bends and slides the one next to that end so the line stays square. A line without bends is routed
 automatically, around other shapes. Lines are drawn beneath shapes.
 
+The text pane suggests what can come next as you type (IntelliSense): shape types after `id:`, connection types after
+a shape id, the shapes on the page after a connection, settings inside `[ ]` and their values (the Routes palette for
+colours), and page sizes and directions. Ctrl+Space opens the list anywhere; Enter or Tab accepts, Escape closes.
+
 Text sizes come across from Visio (`size=8` in the text, in points) and can be set for any selection in the
 properties panel. Text is measured as drawn, so words are only split when a single word is wider than its shape.
 
@@ -62,6 +66,7 @@ src/
   js/text-pane.js        the text pane
   js/toolbar.js          toolbar buttons and keyboard shortcuts
   js/tutorial.js         the guided tour
+  js/intellisense.js     suggestions as you type in the text pane
 ```
 
 Modules only declare things when imported. Anything that touches the page (event listeners, DOM lookups) is in the module's `init()`, and `main.js` calls those in a fixed order.

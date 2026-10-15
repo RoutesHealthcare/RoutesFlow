@@ -166,6 +166,15 @@ button:disabled{opacity:.55;cursor:default}
 #overlay .handle.seg{fill:var(--sel)}
 #overlay .handle.seg.ns{cursor:ns-resize}
 #overlay .handle.seg.ew{cursor:ew-resize}
+
+/* IntelliSense list in the text pane */
+#suggest{position:absolute;z-index:5;margin:0;padding:3px;list-style:none;min-width:220px;max-width:min(460px,100%);max-height:216px;overflow-y:auto;
+  background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.18);font:12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif}
+#suggest li{display:flex;gap:10px;align-items:baseline;padding:3px 8px;border-radius:4px;cursor:pointer;white-space:nowrap}
+#suggest li[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+#suggest .sg-label{font:12.5px ui-monospace,"Cascadia Mono",Consolas,"Liberation Mono",monospace}
+#suggest .sg-detail{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+#suggest li[aria-selected="true"] .sg-detail{color:inherit;opacity:.85}
 </style>
 </head>
 <body>
@@ -343,7 +352,7 @@ button:disabled{opacity:.55;cursor:default}
   </div>
   <div class="code">
     <div class="gutter-wrap"><div id="codeGutter" aria-hidden="true"></div></div>
-    <div class="code-body"><div id="codeHl" aria-hidden="true"></div><textarea id="codeText" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="Diagram text"></textarea></div>
+    <div class="code-body"><div id="codeHl" aria-hidden="true"></div><textarea id="codeText" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="Diagram text"></textarea><ul id="suggest" role="listbox" aria-label="Suggestions" hidden></ul></div>
   </div>
   <div class="tp-status" id="tpStatus" role="status"></div>
 </aside>
@@ -1497,19 +1506,19 @@ button:disabled{opacity:.55;cursor:default}
         succ[a].push(b);
         pred[b].push(a);
       }
-      const rank = new Array(N).fill(0), deg = pred.map((x) => x.length), q = [];
+      const rank2 = new Array(N).fill(0), deg = pred.map((x) => x.length), q = [];
       for (let i = 0; i < N; i++) if (!deg[i]) q.push(i);
       while (q.length) {
         const v = q.shift();
         for (const w of succ[v]) {
-          rank[w] = Math.max(rank[w], rank[v] + 1);
+          rank2[w] = Math.max(rank2[w], rank2[v] + 1);
           if (--deg[w] === 0) q.push(w);
         }
       }
-      const maxR = Math.max(0, ...rank.filter((_, i) => linked[i])), anyLinked = linked.some(Boolean);
-      for (let i = 0; i < N; i++) if (!linked[i]) rank[i] = anyLinked ? maxR + 1 : 0;
+      const maxR = Math.max(0, ...rank2.filter((_, i) => linked[i])), anyLinked = linked.some(Boolean);
+      for (let i = 0; i < N; i++) if (!linked[i]) rank2[i] = anyLinked ? maxR + 1 : 0;
       const layers = [];
-      for (let i = 0; i < N; i++) (layers[rank[i]] = layers[rank[i]] || []).push(i);
+      for (let i = 0; i < N; i++) (layers[rank2[i]] = layers[rank2[i]] || []).push(i);
       const pos = new Array(N);
       layers.forEach((Lr) => Lr && Lr.forEach((v, j) => pos[v] = j));
       const bary = (v, nb) => nb[v].length ? nb[v].reduce((s, u) => s + pos[u], 0) / nb[v].length : pos[v];
@@ -1921,9 +1930,9 @@ button:disabled{opacity:.55;cursor:default}
   var tableH = (cols) => tableHeight(Math.max(1, (cols || []).length)) * 25.4;
   function declObj(d) {
     if (d.implicit) return { id: d.id, kind: "process", label: d.id, place: null, attrs: {} };
-    const place2 = d.place ? { ...d.place } : null;
-    if (place2 && d.kind === "table" && place2.w != null) place2.h = tableH(d.columns);
-    return { id: d.id, kind: d.kind, label: d.label || "", columns: d.columns, place: place2, attrs: d.attrs };
+    const place3 = d.place ? { ...d.place } : null;
+    if (place3 && d.kind === "table" && place3.w != null) place3.h = tableH(d.columns);
+    return { id: d.id, kind: d.kind, label: d.label || "", columns: d.columns, place: place3, attrs: d.attrs };
   }
   function autoSizeMM(o) {
     const s = sizeFor({ kind: o.kind, label: o.label || "", columns: o.columns });
@@ -2978,11 +2987,11 @@ ${cells.map((c) => "        " + c).join("\n")}
 
   // src/js/formats/import.js
   var newGraph = () => ({ nodes: [], edges: [], direction: "TB", positioned: false, warnings: [] });
-  function graphNode(g, map, id, init16) {
+  function graphNode(g, map, id, init17) {
     let n = map.get(id);
     if (!n) {
       if (g.nodes.length >= MAX_NODES) throw new Error(`the diagram has more than ${MAX_NODES} shapes`);
-      n = { id, kind: "process", label: id, ...init16 };
+      n = { id, kind: "process", label: id, ...init17 };
       map.set(id, n);
       g.nodes.push(n);
     }
@@ -3154,16 +3163,16 @@ ${cells.map((c) => "        " + c).join("\n")}
         const opens = MM_OPEN.filter((o) => st.startsWith(o[0], pos));
         if (opens.length) {
           const open = opens.reduce((a, b) => b[0].length > a[0].length ? b : a)[0], cands = opens.filter((o) => o[0] === open);
-          let p = pos + open.length, label, close;
+          let p = pos + open.length, label, close2;
           if (st[p] === '"') {
             const q = st.indexOf('"', p + 1);
             if (q < 0) throw new Error(`Mermaid: unclosed quote in node ${id}.`);
             label = st.slice(p + 1, q);
             p = q + 1;
             while (st[p] === " ") p++;
-            close = cands.find((c) => st.startsWith(c[1], p));
-            if (!close) throw new Error(`Mermaid: node ${id} is not closed properly.`);
-            pos = p + close[1].length;
+            close2 = cands.find((c) => st.startsWith(c[1], p));
+            if (!close2) throw new Error(`Mermaid: node ${id} is not closed properly.`);
+            pos = p + close2[1].length;
           } else {
             let best = null;
             for (const c of cands) {
@@ -3172,11 +3181,11 @@ ${cells.map((c) => "        " + c).join("\n")}
             }
             if (!best) throw new Error(`Mermaid: missing "${cands[0][1]}" after node ${id}.`);
             label = st.slice(p, best.i);
-            close = best.c;
-            pos = best.i + close[1].length;
+            close2 = best.c;
+            pos = best.i + close2[1].length;
           }
           n.label = mmClean(label);
-          n.kind = close[2];
+          n.kind = close2[2];
         }
       }
       const cm = st.slice(pos).match(/^:::([\w-]+)/);
@@ -4389,7 +4398,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       }
     } catch (_) {
     }
-    FLOW_KW = /\b(flow|page|size|direction|key)\b/;
+    FLOW_KW = /\b(flow|page|size|direction|key|icon)\b/;
     KIND_RE = new RegExp("^(?:" + [...FLOW_KINDS, ...Object.keys(KIND_ALIASES)].join("|") + ")$", "i");
     codeText.addEventListener("input", () => {
       if (TP.mode === "flow") {
@@ -4471,7 +4480,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       const kind = FLOW_KINDS.includes(n.kind) ? n.kind : "process", auto = autoSizeMM({ kind, label: n.label, columns: n.columns });
       const w = n.w != null ? n.w * 25.4 : auto.w, h = n.h != null ? n.h * 25.4 : auto.h;
       const sized = Math.abs(w - auto.w) > 0.6 || kind !== "table" && Math.abs(h - auto.h) > 0.6;
-      const place2 = n.keepPlace !== void 0 ? n.keepPlace : placed && n.x != null ? { x: ox + n.x * 25.4, y: oy + n.y * 25.4, w: sized ? w : null, h: sized ? kind === "table" ? tableH(n.columns) : h : null } : null;
+      const place3 = n.keepPlace !== void 0 ? n.keepPlace : placed && n.x != null ? { x: ox + n.x * 25.4, y: oy + n.y * 25.4, w: sized ? w : null, h: sized ? kind === "table" ? tableH(n.columns) : h : null } : null;
       const hex = (v) => v && /^#[0-9a-f]{6}$/i.test(v) ? v.toUpperCase() : null, T = SHAPES[kind];
       const attrs = n.keepAttrs || (kind === "table" ? {} : {
         fill: hex(n.fill) && hex(n.fill) !== (T.fill || DEF.fill).toUpperCase() ? hex(n.fill) : null,
@@ -4480,7 +4489,7 @@ ${cells.map((c) => "        " + c).join("\n")}
         icon: n.iconRef || null,
         size: n.size && Math.abs(n.size - SHAPE_TEXT_PT) > 0.01 ? n.size : null
       });
-      lines.push(shapeStmt({ id: ids.get(n.id), kind, label: n.label || "", columns: kind === "table" ? n.columns && n.columns.length ? n.columns : ["column"] : null, place: place2, attrs }));
+      lines.push(shapeStmt({ id: ids.get(n.id), kind, label: n.label || "", columns: kind === "table" ? n.columns && n.columns.length ? n.columns : ["column"] : null, place: place3, attrs }));
     }
     for (const e of g.edges) {
       const from = ids.get(e.from), to = ids.get(e.to);
@@ -5083,17 +5092,17 @@ ${cells.map((c) => "        " + c).join("\n")}
       const id = g.dataset.id;
       if (seen2.has(id) || !S.elById[id]) continue;
       seen2.add(id);
-      let rank, area = 0;
+      let rank2, area = 0;
       if (isConnector(id)) {
         if (!n.closest("text") && distToPolyline(S.lines[id], pt.px, pt.py) > tol) continue;
-        rank = 0;
+        rank2 = 0;
       } else {
         const b = S.boxes[id];
         if (!b) continue;
-        rank = pt.px >= b.x0 && pt.px <= b.x1 && pt.py >= b.y0 && pt.py <= b.y1 ? 1 : 2;
+        rank2 = pt.px >= b.x0 && pt.px <= b.x1 && pt.py >= b.y0 && pt.py <= b.y1 ? 1 : 2;
         area = (b.x1 - b.x0) * (b.y1 - b.y0);
       }
-      hits.push({ id, rank, area, z: hits.length });
+      hits.push({ id, rank: rank2, area, z: hits.length });
     }
     if (hits.some((h) => h.rank === 1)) {
       for (const h of hits) if (h.rank === 0) h.rank = 1.5;
@@ -6407,8 +6416,261 @@ ${cells.map((c) => "        " + c).join("\n")}
     });
   }
 
+  // src/js/intellisense.js
+  var MAX_SHOWN = 50;
+  var ID = "[A-Za-z_][\\w-]*";
+  var STATEMENTS = [["page", 'Start a page: page "Name" size 297x210'], ["key", "Add the key that explains the lines"], ["icon", 'Define a picture: icon name "data:image/svg+xml;base64,..."']];
+  var SHAPE_SETTINGS = { fill: "Fill colour", stroke: "Line colour", text: "Text colour", weight: "Line weight in points", size: "Text size in points", icon: "Picture kept from an import" };
+  var LINE_SETTINGS = {
+    style: "Line pattern",
+    start: "Line end at the start",
+    end: "Line end at the finish",
+    stroke: "Line colour",
+    weight: "Line weight in points",
+    size: "Label size in points",
+    means: "Meaning shown in the key",
+    route: "Straight or right-angled",
+    via: 'Bend points in mm, like "40,20 40,60"'
+  };
+  var COLOURS = [
+    ["#FA4616", "Blood Orange"],
+    ["#00B5E2", "Cyan"],
+    ["#44D62C", "Green"],
+    ["#DCE3EB", "Silver"],
+    ["#282822", "Charcoal"],
+    ["#FFFFFF", "White"],
+    ["#F0A63E", "Yellow"],
+    ["#50B29C", "Teal"],
+    ["#006F8E", "Harbor Blue"],
+    ["#2B3A47", "Default line"]
+  ];
+  var PAGE_SIZES = [["297x210", "A4 landscape"], ["210x297", "A4 portrait"], ["420x297", "A3 landscape"], ["594x420", "A2 landscape"], ["841x594", "A1 landscape"]];
+  var DIRECTIONS = [["TB", "Top to bottom"], ["LR", "Left to right"], ["BT", "Bottom to top"], ["RL", "Right to left"]];
+  var POINTS = (w) => w.map((v) => [String(v), v + " pt"]);
+  var VALUES = {
+    fill: COLOURS,
+    stroke: COLOURS,
+    text: COLOURS,
+    weight: POINTS([0.5, 0.75, 1, 1.5, 2, 3]),
+    size: POINTS([8, 9, 10, 11, 12, 14, 18, 24]),
+    style: Object.keys(LINE_STYLES).map((k) => [k, ""]),
+    start: Object.entries(MARKERS),
+    end: Object.entries(MARKERS),
+    route: [["straight", "A direct line"], ["elbow", "Right angles, routed round shapes"]],
+    icon: () => [...S.ast && S.ast.icons ? S.ast.icons.keys() : []].map((n) => [n, "Icon defined in this document"])
+  };
+  var CONNECTIONS = Object.values(CONN).filter((c) => c.token).map((c) => [c.token, `${c.name}: ${c.means}`]).concat([["||--o{", "One to many (database)"], ["||--||", "One to one (database)"], ["}o--o{", "Many to many (database)"]]);
+  var kindHelp = {};
+  var codeText2;
+  var box;
+  var items = [];
+  var active = 0;
+  var range = null;
+  function pageAt(line) {
+    const pages = S.ast && S.ast.pages || [];
+    let p = pages[0];
+    for (const ap2 of pages) if (ap2.headerLine != null && ap2.headerLine <= line) p = ap2;
+    return p;
+  }
+  var shapeIds2 = (line, skip) => {
+    const ap2 = pageAt(line);
+    return ap2 ? ap2.shapes.filter((d) => !d.implicit && d.id !== skip).map((d) => [d.id, d.label || d.kind]) : [];
+  };
+  var isConnectionToken = (t) => CONNECTIONS.some(([tok]) => tok === t) || /^[|}][|o](--|\.\.)[|o][|{]$/.test(t);
+  function suggestionsAt(text, caret) {
+    const lineStart = text.lastIndexOf("\n", caret - 1) + 1, before = text.slice(lineStart, caret), line = text.slice(0, caret).split("\n").length - 1;
+    if (splitComment(before).code.length < before.length) return null;
+    if ((before.replace(/\\./g, "").match(/"/g) || []).length % 2) return null;
+    const tail = (re) => {
+      const m2 = before.match(re);
+      return m2 ? { start: caret - m2[m2.length - 1].length, word: m2[m2.length - 1] } : null;
+    };
+    let m, t;
+    if (m = before.match(/\[([^\]]*)$/)) {
+      const shape = new RegExp(`^\\s*${ID}\\s*:`).test(before), names = shape ? SHAPE_SETTINGS : LINE_SETTINGS;
+      const v = m[1].match(/([A-Za-z]+)=([^\s\]]*)$/);
+      if (v) {
+        const opts = VALUES[v[1].toLowerCase()];
+        if (!opts) return null;
+        return { start: caret - v[2].length, word: v[2], kind: "value", items: (typeof opts === "function" ? opts() : opts).map(([k, d]) => [k, d]) };
+      }
+      const used = new Set([...m[1].matchAll(/([A-Za-z]+)=/g)].map((x) => x[1].toLowerCase()));
+      t = tail(/(?:^|[\s[])([A-Za-z]*)$/);
+      if (!t) return null;
+      return { ...t, kind: "setting", items: Object.entries(names).filter(([k]) => !used.has(k)).map(([k, d]) => [k + "=", d]) };
+    }
+    if (/^\s*page\b/i.test(before)) {
+      if (t = tail(/\bdirection\s+([A-Za-z]*)$/i)) return { ...t, kind: "value", items: DIRECTIONS };
+      if (t = tail(/\bsize\s+([\dx.]*)$/i)) return { ...t, kind: "value", items: PAGE_SIZES };
+      if (/"[^"]*"\s/.test(before) && (t = tail(/\s([A-Za-z]*)$/))) return { ...t, kind: "setting", items: [["size ", "Page size in mm"], ["direction ", "Layout direction for automatic placing"]] };
+      return null;
+    }
+    if (t = tail(new RegExp(`^\\s*${ID}\\s*:\\s*([A-Za-z]*)$`)))
+      return { ...t, kind: "kind", items: [...FLOW_KINDS.map((k) => [k, kindHelp[k] || ""]), ...Object.entries(KIND_ALIASES).map(([a, k]) => [a, `Same as ${k}`])] };
+    if ((m = before.match(new RegExp(`^\\s*(${ID})\\s+(\\S+)\\s+(${ID})?$`))) && isConnectionToken(m[2])) {
+      const word = m[3] || "";
+      return { start: caret - word.length, word, kind: "id", items: shapeIds2(line, m[1]) };
+    }
+    if ((m = before.match(new RegExp(`^\\s*(${ID})\\s+(\\S*)$`))) && !/^(page|key|icon|flow)$/i.test(m[1]))
+      return { start: caret - m[2].length, word: m[2], kind: "conn", items: CONNECTIONS };
+    if (t = tail(new RegExp(`^\\s*(${ID}|)$`)))
+      return { ...t, kind: "start", items: [...STATEMENTS, ...shapeIds2(line).map(([id, l]) => [id, `Connect from: ${l}`])] };
+    return null;
+  }
+  function rank(list, word) {
+    const w = word.toLowerCase(), starts = [], has = [];
+    for (const it of list) {
+      const k = it[0].toLowerCase();
+      if (k.startsWith(w)) starts.push(it);
+      else if (w && k.includes(w)) has.push(it);
+    }
+    return [...starts, ...has];
+  }
+  function update(force) {
+    if (TP.mode !== "flow" || codeText2.selectionStart !== codeText2.selectionEnd) {
+      close();
+      return;
+    }
+    const caret = codeText2.selectionStart, ctx = suggestionsAt(codeText2.value, caret);
+    if (!ctx) {
+      close();
+      return;
+    }
+    const prev = codeText2.value[caret - 1] || "", trigger = /[\s:[=>]/.test(prev);
+    if (!force && !ctx.word && (!trigger || ctx.kind === "start")) {
+      close();
+      return;
+    }
+    items = rank(ctx.items, ctx.word).slice(0, MAX_SHOWN);
+    if (!items.length || !force && items.length === 1 && items[0][0] === ctx.word) {
+      close();
+      return;
+    }
+    range = { start: ctx.start, end: caret, kind: ctx.kind };
+    active = 0;
+    draw();
+    place2();
+  }
+  function draw() {
+    box.replaceChildren(...items.map(([label, detail], i) => {
+      const li2 = document.createElement("li");
+      li2.id = "sg-" + i;
+      li2.setAttribute("role", "option");
+      li2.setAttribute("aria-selected", String(i === active));
+      const a = document.createElement("span");
+      a.className = "sg-label";
+      a.textContent = label.trim();
+      const b = document.createElement("span");
+      b.className = "sg-detail";
+      b.textContent = detail;
+      li2.append(a, b);
+      li2.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        active = i;
+        accept();
+      });
+      return li2;
+    }));
+    box.hidden = false;
+    codeText2.setAttribute("aria-expanded", "true");
+    codeText2.setAttribute("aria-activedescendant", "sg-" + active);
+    const li = box.children[active];
+    if (li) li.scrollIntoView({ block: "nearest" });
+  }
+  var charW = 0;
+  function place2() {
+    if (!charW) {
+      const c = document.createElement("canvas").getContext("2d");
+      c.font = getComputedStyle(codeText2).font;
+      charW = c.measureText("0").width || 7.5;
+    }
+    const before = codeText2.value.slice(0, range.start), line = before.split("\n").length - 1, col = before.length - before.lastIndexOf("\n") - 1;
+    const pad = parseFloat(getComputedStyle(codeText2).paddingLeft) || 10, top = 8 + (line + 1) * 18 - codeText2.scrollTop, left = pad + col * charW - codeText2.scrollLeft;
+    const host = codeText2.parentElement.getBoundingClientRect();
+    box.style.top = (top + box.offsetHeight > host.height && top > box.offsetHeight + 18 ? top - 18 - box.offsetHeight : top) + "px";
+    box.style.left = Math.max(0, Math.min(left, host.width - box.offsetWidth - 4)) + "px";
+  }
+  function close() {
+    if (box.hidden) return;
+    box.hidden = true;
+    items = [];
+    range = null;
+    codeText2.setAttribute("aria-expanded", "false");
+    codeText2.removeAttribute("aria-activedescendant");
+  }
+  function accept() {
+    const it = items[active];
+    if (!it || !range) return;
+    let insert = it[0], back = 0;
+    if (range.kind === "kind") {
+      insert += ' ""';
+      back = 1;
+    } else if (range.kind === "conn") insert += " ";
+    codeText2.focus();
+    codeText2.setSelectionRange(range.start, range.end);
+    document.execCommand("insertText", false, insert);
+    if (back) codeText2.setSelectionRange(codeText2.selectionStart - back, codeText2.selectionStart - back);
+    close();
+    if (/[=\s]$/.test(insert)) update(true);
+  }
+  function init16() {
+    codeText2 = $("codeText");
+    box = $("suggest");
+    for (const b of document.querySelectorAll(".palette [data-kind]")) kindHelp[b.dataset.kind] = b.title || b.textContent.trim();
+    codeText2.setAttribute("aria-autocomplete", "list");
+    codeText2.setAttribute("aria-controls", "suggest");
+    codeText2.setAttribute("aria-expanded", "false");
+    codeText2.addEventListener("keydown", (e) => {
+      if (e.key === " " && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        update(true);
+        return;
+      }
+      if (box.hidden) return;
+      const n = items.length, take = () => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      };
+      if (e.key === "ArrowDown") {
+        take();
+        active = (active + 1) % n;
+        draw();
+      } else if (e.key === "ArrowUp") {
+        take();
+        active = (active - 1 + n) % n;
+        draw();
+      } else if (e.key === "PageDown") {
+        take();
+        active = Math.min(n - 1, active + 8);
+        draw();
+      } else if (e.key === "PageUp") {
+        take();
+        active = Math.max(0, active - 8);
+        draw();
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        take();
+        accept();
+      } else if (e.key === "Escape") {
+        take();
+        close();
+      } else if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) close();
+    }, true);
+    codeText2.addEventListener("input", (e) => {
+      if (e.inputType && !e.inputType.startsWith("insert")) {
+        if (!box.hidden) update();
+        return;
+      }
+      update();
+    });
+    codeText2.addEventListener("blur", close);
+    codeText2.addEventListener("click", close);
+    codeText2.addEventListener("scroll", () => {
+      if (!box.hidden) place2();
+    });
+  }
+
   // src/js/main.js
-  for (const init16 of [init12, init11, init9, init10, init13, init8, init3, init5, init6, init, init2, init4, init7, init14, init15]) init16();
+  for (const init17 of [init12, init11, init9, init10, init13, init8, init3, init5, init6, init, init2, init4, init7, init14, init15, init16]) init17();
   newDoc();
   setPane(TP.open, TP.pinned);
   maybeStartTour();

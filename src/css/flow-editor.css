@@ -158,3 +158,12 @@ button:disabled{opacity:.55;cursor:default}
 #overlay .handle.seg{fill:var(--sel)}
 #overlay .handle.seg.ns{cursor:ns-resize}
 #overlay .handle.seg.ew{cursor:ew-resize}
+
+/* IntelliSense list in the text pane */
+#suggest{position:absolute;z-index:5;margin:0;padding:3px;list-style:none;min-width:220px;max-width:min(460px,100%);max-height:216px;overflow-y:auto;
+  background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.18);font:12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif}
+#suggest li{display:flex;gap:10px;align-items:baseline;padding:3px 8px;border-radius:4px;cursor:pointer;white-space:nowrap}
+#suggest li[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+#suggest .sg-label{font:12.5px ui-monospace,"Cascadia Mono",Consolas,"Liberation Mono",monospace}
+#suggest .sg-detail{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+#suggest li[aria-selected="true"] .sg-detail{color:inherit;opacity:.85}

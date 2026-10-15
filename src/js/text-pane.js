@@ -128,7 +128,7 @@ function selectFromCaret(){
 /* Wires this module to the page. main.js calls every init() once, in the order the original script ran. */
 export function init(){
   codeText=$('codeText'); codeHl=$('codeHl'); codeGutter=$('codeGutter');
-  try{ const p=JSON.parse(localStorage.getItem('flowEditor.pane')||'null'); if(p){ if(p.w) document.body.style.setProperty('--tpw',p.w); TP.open=!!p.open; TP.pinned=!!p.pinned; } }catch(_){ /* first run or storage blocked */ }FLOW_KW=/\b(flow|page|size|direction|key)\b/; KIND_RE=new RegExp('^(?:'+[...FLOW_KINDS,...Object.keys(KIND_ALIASES)].join('|')+')$','i');
+  try{ const p=JSON.parse(localStorage.getItem('flowEditor.pane')||'null'); if(p){ if(p.w) document.body.style.setProperty('--tpw',p.w); TP.open=!!p.open; TP.pinned=!!p.pinned; } }catch(_){ /* first run or storage blocked */ }FLOW_KW=/\b(flow|page|size|direction|key|icon)\b/; KIND_RE=new RegExp('^(?:'+[...FLOW_KINDS,...Object.keys(KIND_ALIASES)].join('|')+')$','i');
   codeText.addEventListener('input',()=>{ if(TP.mode==='flow'){ paintCode(); applyFromEditor(); } else { TP.dirty=true; paintCode(); refreshEditor(); setStatus('Not applied yet.'); } });
   codeText.addEventListener('scroll',syncScroll);
   codeText.addEventListener('keydown',e=>{
