@@ -1,0 +1,46 @@
+flow 1
+page "Connection types" direction LR
+# one of every connection type
+a1: process "Step A" @ 15,15
+a2: process "Step B" @ 95,15
+b1: process "Form" @ 15,45
+b2: database "Records" @ 95,40
+c1: process "Care worker" @ 15,75
+c2: process "Manager" @ 95,75
+d1: process "Escalate" @ 15,105
+d2: process "On-call" @ 95,105
+e1: process "Rota" @ 15,135
+e2: process "Payroll" @ 95,135
+f1: text "Note" @ 15,165
+f2: process "Visit" @ 95,165
+g1: api "Portal" @ 185,15
+g2: database "SQL" @ 265,15
+h1: process "Service" @ 185,45
+h2: process "Thing" @ 265,45
+i1: process "Carer" @ 185,75
+i2: process "Person" @ 265,75
+j1: api "AuthImpl" @ 185,105
+j2: api "IAuth" @ 265,105
+k1: process "Team" @ 185,135
+k2: user "Member" @ 265,135
+l1: process "Order" @ 185,165
+l2: process "Line" @ 265,165
+m1: table "clients" { id; name } @ 355,15
+m2: table "visits" { id; client_id; date } @ 435,15
+n1: process "X" @ 355,75
+n2: process "Y" @ 435,75
+a1 -> a2 : "next"
+b1 -data-> b2
+c1 -msg-> c2 : "alert"
+d1 -alt-> d2
+e1 <-> e2
+f1 .. f2
+g1 ..> g2
+h1 -- h2
+i1 --|> i2
+j1 ..|> j2
+k1 o-- k2
+l1 *-- l2
+m1 ||--o{ m2 : "has"
+n1 -- n2 [style=dashed start=circle end=fdiamond means="Escalates to"]
+key "What the lines mean" @ 355,110
