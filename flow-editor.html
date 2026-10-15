@@ -62,6 +62,14 @@ button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
 #overlay .selbox{fill:none;stroke:var(--sel);stroke-width:1.2;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
 #overlay .handle{fill:#FFFFFF;stroke:var(--sel);stroke-width:1.5;vector-effect:non-scaling-stroke;pointer-events:all;cursor:pointer}
 #overlay .ghost{stroke:var(--sel);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
+#overlay .selbox.extra{stroke-dasharray:2 3;opacity:.75}
+#overlay .marquee{fill:color-mix(in srgb,var(--sel) 10%,transparent);stroke:var(--sel);stroke-width:1;stroke-dasharray:3 2;vector-effect:non-scaling-stroke}
+#hover{pointer-events:none}
+#hover .hoverbox{fill:none;stroke:var(--sel);stroke-width:1;opacity:.6;vector-effect:non-scaling-stroke}
+#hover .hoverline{fill:none;stroke:var(--sel);stroke-width:7;opacity:.25;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.stage.over-shape:not(.connect) #canvas{cursor:move}
+.stage.over-line:not(.connect) #canvas{cursor:pointer}
+.stage.panning #canvas{cursor:grab}
 #textEditor{position:absolute;z-index:5;resize:none;padding:6px;border:2px solid var(--accent);border-radius:3px;background:#FFFFFF;color:#1E2933;text-align:center;font:14px/1.3 Calibri,"Segoe UI",Arial,sans-serif}
 .props{grid-area:props;background:var(--panel);border-left:1px solid var(--rule);padding:14px 16px;overflow-y:auto}
 .props h2{font-size:13px;font-weight:600;margin:0 0 10px}
@@ -249,7 +257,12 @@ button:disabled{opacity:.55;cursor:default}
       <dt>Ctrl+E</dt><dd>Show or hide the text</dd>
       <dt>Ctrl+Z / Y</dt><dd>Undo / redo</dd>
       <dt>Ctrl+D</dt><dd>Duplicate</dd>
-      <dt>Delete</dt><dd>Remove shape</dd>
+      <dt>Delete</dt><dd>Remove the selection</dd>
+      <dt>Ctrl+A</dt><dd>Select everything on the page</dd>
+      <dt>Shift+click</dt><dd>Add to or remove from the selection</dd>
+      <dt>Drag on the page</dt><dd>Select everything inside the box</dd>
+      <dt>Alt+click</dt><dd>Select the object underneath</dd>
+      <dt>Space+drag</dt><dd>Pan (or middle-drag, or scroll)</dd>
       <dt>Arrow keys</dt><dd>Nudge 1 mm (Shift for 10 mm)</dd>
       <dt>Ctrl+scroll</dt><dd>Zoom</dd>
       <dt>Alt+drag</dt><dd>Move without grid snap</dd>
@@ -660,7 +673,8 @@ function drawShape(el,parentM,inheritMid,g){
   const lc=colour(cellV(sh,'LineColor',null),'#000000'), fc=colour(cellV(sh,'FillForegnd',null),'#FFFFFF');
   const lw=Math.max(num(sh,'LineWeight',0.01)*PX,0.6);
   const corners=[[0,0],[W,0],[W,H],[0,H]].map(q=>ap(m,q[0],q[1]));
-  if(!oneD) g.appendChild(svgEl('path',{d:'M'+corners.map(q=>q.join(' ')).join('L')+'Z',fill:'transparent',stroke:'none'}));
+  if(!oneD) g.appendChild(svgEl('path',{d:'M'+corners.map(q=>q.join(' ')).join('L')+'Z',fill:'transparent',stroke:'transparent',
+    'stroke-width':HIT_PAD_PX*2,'vector-effect':'non-scaling-stroke'}));
   const all=[], polys=[], open=[]; let hit='';
   for(const p of buildPaths(sh,W,H)){
     let df='', ds='';
@@ -681,7 +695,8 @@ function drawShape(el,parentM,inheritMid,g){
     if(lp>0) g.appendChild(svgEl('path',{d:`M${b[0]} ${b[1]}L${e[0]} ${e[1]}`,stroke:lc,'stroke-width':lw,fill:'none'}));
     open.push([b,e]); all.push(b,e); hit+=`M${b[0]} ${b[1]}L${e[0]} ${e[1]}`;
   }
-  if(oneD&&hit) g.insertBefore(svgEl('path',{d:hit,fill:'none',stroke:'transparent','stroke-width':12}),g.firstChild);
+  if(oneD&&hit) g.insertBefore(svgEl('path',{d:hit,fill:'none',stroke:'transparent','stroke-width':HIT_TOL_PX*2+2,'vector-effect':'non-scaling-stroke'}),g.firstChild);
+  if(oneD) S.lines[id]=open;   // kept for hit testing and hover
   if(lp>0&&open.length){
     const sz=Math.max(8,lw*4.5), me=markerOf(el,sh,'End'), ms=markerOf(el,sh,'Begin');
     if(me!=='none'){ const s=open[open.length-1]; drawMarker(g,s[s.length-2],s[s.length-1],me,sz,lc); }
@@ -723,22 +738,23 @@ function render(){
   const pw=pg.w*PX, ph=pg.h*PX;
   for(const r of [$('paper'),$('gridRect')]){ r.setAttribute('width',pw); r.setAttribute('height',ph); }
   const layer=$('layer'); layer.replaceChildren();
-  S.boxes={}; S.polys={}; S.elById={};
+  S.boxes={}; S.polys={}; S.elById={}; S.lines={};
   for(const s of pg.doc.getElementsByTagNameNS(NS,'Shape')) S.elById[s.getAttribute('ID')]=s;
   const base=[PX,0,0,-PX,0,ph];
   for(const el of kids(kid(pg.doc.documentElement,'Shapes'),'Shape')){
     const g=svgEl('g',{'data-id':el.getAttribute('ID')}); layer.appendChild(g);
     try{ drawShape(el,base,null,g); }catch(err){ console.warn('Could not draw shape',el.getAttribute('ID'),err); }
   }
-  if(S.sel&&!S.elById[S.sel]) S.sel=null;
+  syncSelection(); if(S.hover&&!S.elById[S.hover]) S.hover=null; drawHover();
   drawOverlay(); updateProps(); updateTitle();
 }
 function canResize(el){ const sh=shapeCtx(el,null); return !is1D(sh)&&el.getAttribute('Type')!=='Group'&&Math.abs(num(sh,'Angle',0))<1e-6; }
 function drawOverlay(){
   const ov=$('overlay'); ov.replaceChildren();
-  if(!S.sel||!S.boxes[S.sel]) return;
-  const b=S.boxes[S.sel], el=S.elById[S.sel], sh=shapeCtx(el,null), hs=8/S.zoom, pg=pageCtx();
-  ov.appendChild(svgEl('rect',{x:b.x0,y:b.y0,width:Math.max(b.x1-b.x0,0.5),height:Math.max(b.y1-b.y0,0.5),class:'selbox'}));
+  for(const id of S.selection){ const b=S.boxes[id]; if(!b) continue;
+    ov.appendChild(svgEl('rect',{x:b.x0,y:b.y0,width:Math.max(b.x1-b.x0,0.5),height:Math.max(b.y1-b.y0,0.5),class:id===S.sel?'selbox':'selbox extra'})); }
+  if(S.selection.size!==1||!S.boxes[S.sel]) return;   // handles only make sense for one object
+  const b=S.boxes[S.sel], el=S.elById[S.sel], sh=shapeCtx(el,null), hs=10/S.zoom, pg=pageCtx();
   if(is1D(sh)){
     for(const [h,X,Y] of [['begin',num(sh,'BeginX',0),num(sh,'BeginY',0)],['end',num(sh,'EndX',0),num(sh,'EndY',0)]])
       ov.appendChild(svgEl('circle',{cx:X*PX,cy:(pg.h-Y)*PX,r:hs*0.65,class:'handle','data-handle':h}));
@@ -843,11 +859,13 @@ function refreshConnector(cid){
   if(bTo) b=anchorFor(bTo,ec); if(eTo) e=anchorFor(eTo,bc);
   setConnector(el,toIn(b),toIn(e),bTo,eTo);
 }
-function refreshFor(id){
-  const el=S.elById[id]; if(!el) return;
-  const ids=new Set([id,...[...el.getElementsByTagNameNS(NS,'Shape')].map(s=>s.getAttribute('ID'))]);
-  for(const c of new Set(listConnects().filter(c=>ids.has(c.to)).map(c=>c.from))) refreshConnector(c);
+function refreshForMany(ids){
+  const moved=new Set();
+  for(const id of ids){ const el=S.elById[id]; if(!el) continue; moved.add(id);
+    for(const s of el.getElementsByTagNameNS(NS,'Shape')) moved.add(s.getAttribute('ID')); }
+  for(const c of new Set(listConnects().filter(c=>moved.has(c.to)).map(c=>c.from))) refreshConnector(c);
 }
+const refreshFor=id=>refreshForMany([id]);
 
 /* ---------- editing operations ---------- */
 function nextId(doc){ let m=0; for(const s of doc.getElementsByTagNameNS(NS,'Shape')) m=Math.max(m,+s.getAttribute('ID')||0); return String(m+1); }
@@ -1023,36 +1041,89 @@ function applySize(el,W,H,W0,H0,lx,ly){
   setCell(el,'LocPinX',(W0?lx/W0:0.5)*W,null); setCell(el,'LocPinY',(H0?ly/H0:0.5)*H,null);
   recompute(el,W,H,W0?W/W0:1,H0?H/H0:1);
 }
-function select(id){ S.sel=id; drawOverlay(); updateProps(); }
-function deleteShape(id){
+/* ---------- selection ----------
+   S.selection holds every selected top-level shape ID. S.sel is the primary one: the shape the
+   properties panel shows and the one text editing and resize handles act on. Code that still
+   assigns S.sel directly keeps working, because render() calls syncSelection(). */
+S.selection=new Set(); S.hover=null; S.lines={};
+const HIT_TOL_PX=6;   // screen pixels: how close the pointer must be to a connection's line to pick it
+const HIT_PAD_PX=5;   // screen pixels: extra margin around every shape that still counts as a hit
+const isConnector=id=>{ const el=S.elById[id]; return !!el&&is1D(shapeCtx(el,null)); };
+const selIds=()=>[...S.selection];
+const selEls=()=>selIds().map(id=>S.elById[id]).filter(Boolean);
+const topLevelIds=()=>{ const pg=pageCtx(); return pg?kids(kid(pg.doc.documentElement,'Shapes'),'Shape').map(el=>el.getAttribute('ID')):[]; };
+function setSelection(ids,primary){
+  S.selection=new Set(ids.filter(id=>S.elById[id]));
+  S.sel=primary!=null&&S.selection.has(primary)?primary:(selIds()[0]??null);
+  drawOverlay(); updateProps(); drawHover();
+}
+function syncSelection(){
+  if(S.sel==null){ S.selection=new Set(); return; }
+  const live=selIds().filter(id=>S.elById[id]);
+  if(!S.elById[S.sel]) S.sel=live[0]??null;
+  S.selection=S.sel==null?new Set():S.selection.has(S.sel)?new Set(live):new Set([S.sel]);
+}
+function select(id){ setSelection(id?[id]:[],id); }
+function toggleSelection(id){
+  if(S.selection.has(id)) setSelection(selIds().filter(i=>i!==id),S.sel===id?null:S.sel);
+  else setSelection([...selIds(),id],id);
+}
+const selectAll=()=>setSelection(topLevelIds(),S.sel);
+
+function deleteShapes(idList){
+  const targets=idList.filter(id=>S.elById[id]); if(!targets.length) return;
   commit(()=>{
-    const el=S.elById[id]; if(!el) return; const doc=pageCtx().doc;
-    const ids=new Set([id,...[...el.getElementsByTagNameNS(NS,'Shape')].map(s=>s.getAttribute('ID'))]);
+    const doc=pageCtx().doc, gone=new Set();
+    for(const id of targets){ gone.add(id); for(const s of S.elById[id].getElementsByTagNameNS(NS,'Shape')) gone.add(s.getAttribute('ID')); }
     const affected=new Set(), ce=connectsEl(doc,false);
     if(ce){ for(const c of kids(ce,'Connect')){ const f=c.getAttribute('FromSheet'), t=c.getAttribute('ToSheet');
-        if(ids.has(f)) c.remove(); else if(ids.has(t)){ c.remove(); affected.add(f); } }
+        if(gone.has(f)) c.remove(); else if(gone.has(t)){ c.remove(); affected.add(f); } }
       if(!kids(ce,'Connect').length) ce.remove(); }
-    const parent=el.parentNode; el.remove();
-    if(parent&&parent.localName==='Shapes'&&!kids(parent,'Shape').length&&parent.parentNode===doc.documentElement) parent.remove();
-    S.sel=null; render(); for(const a of affected) refreshConnector(a);
+    for(const id of targets){
+      const el=S.elById[id], parent=el.parentNode; el.remove();
+      if(parent&&parent.localName==='Shapes'&&!kids(parent,'Shape').length&&parent.parentNode===doc.documentElement) parent.remove();
+    }
+    S.sel=null; S.selection=new Set(); render();
+    for(const a of affected) if(!gone.has(a)) refreshConnector(a);
   });
 }
-function moveBy(id,dx,dy){
-  const el=S.elById[id], sh=shapeCtx(el,null);
-  if(is1D(sh)) return;
-  setCell(el,'PinX',num(sh,'PinX',0)+dx); setCell(el,'PinY',num(sh,'PinY',0)+dy);
-  render(); refreshFor(id);
+const deleteShape=id=>deleteShapes([id]);
+
+function moveMany(ids,dx,dy){
+  const movable=ids.filter(id=>S.elById[id]&&!isConnector(id));   // connections follow their shapes
+  for(const id of movable){ const el=S.elById[id], sh=shapeCtx(el,null);
+    setCell(el,'PinX',num(sh,'PinX',0)+dx); setCell(el,'PinY',num(sh,'PinY',0)+dy); }
+  if(movable.length){ render(); refreshForMany(movable); }
 }
+const moveBy=(id,dx,dy)=>moveMany([id],dx,dy);
+
+function cloneShape(el,doc,dx,dy){
+  const c=el.cloneNode(true), nid=nextId(doc), sh=shapeCtx(el,null);
+  c.setAttribute('ID',nid);
+  for(const a of ['Name','NameU','IsCustomName','IsCustomNameU','UniqueID']) c.removeAttribute(a);
+  delUser(c,'FlowId'); delUser(c,'FlowEdge');   // the copy gets its own name or line when it is written to the text
+  el.parentNode.appendChild(c);
+  if(dx||dy){ setCell(c,'PinX',num(sh,'PinX',0)+dx); setCell(c,'PinY',num(sh,'PinY',0)+dy); }
+  return nid;
+}
+/* Copies the selected shapes, and any selected connections whose two ends are both on copied shapes */
 function duplicate(){
-  const id=S.sel; if(!id) return; const el=S.elById[id], sh=shapeCtx(el,null);
-  if(el.getAttribute('Type')==='Group'||is1D(sh)){ toast('Duplicate works on single shapes, not groups or connectors.'); return; }
+  const ids=selIds(); if(!ids.length) return;
+  const copyable=id=>{ const el=S.elById[id]; return el.getAttribute('Type')!=='Group'&&!isConnector(id)&&roleOf(el)!=='key'; };
+  const shapes=ids.filter(copyable);
+  if(!shapes.length){ toast('Duplicate works on single shapes, not groups, connections or the key.'); return; }
   commit(()=>{
-    const c=el.cloneNode(true), nid=nextId(pageCtx().doc);
-    c.setAttribute('ID',nid); for(const a of ['Name','NameU','IsCustomName','IsCustomNameU','UniqueID']) c.removeAttribute(a);
-    delUser(c,'FlowId');   // the copy gets its own name when it is written to the text
-    el.parentNode.appendChild(c);
-    setCell(c,'PinX',num(sh,'PinX',0)+5*MM); setCell(c,'PinY',num(sh,'PinY',0)-5*MM);
-    S.sel=nid;
+    const doc=pageCtx().doc, copyOf=new Map();
+    for(const id of shapes) copyOf.set(id,cloneShape(S.elById[id],doc,5*MM,-5*MM));
+    const cons=listConnects(), endOf=(id,cell)=>(cons.find(c=>c.from===id&&c.fromCell===cell)||{}).to;
+    const lineCopies=ids.filter(id=>isConnector(id)&&copyOf.has(endOf(id,'BeginX'))&&copyOf.has(endOf(id,'EndX')))
+      .map(id=>[id,cloneShape(S.elById[id],doc,0,0)]);
+    render();   // the copies need boxes before connections can be attached to them
+    for(const [id,nid] of lineCopies){
+      setGlue(nid,'Begin',copyOf.get(endOf(id,'BeginX'))); setGlue(nid,'End',copyOf.get(endOf(id,'EndX'))); refreshConnector(nid);
+    }
+    const copies=[...copyOf.values(),...lineCopies.map(x=>x[1])];
+    S.sel=copies[0]; S.selection=new Set(copies);
   });
 }
 
@@ -1096,23 +1167,106 @@ function hitShape(e,exclude){
   }
   return null;
 }
+/* ---------- hit testing ---------- */
+function distToLines(segs,x,y){
+  let best=Infinity;
+  for(const s of segs||[]) for(let i=1;i<s.length;i++){
+    const [ax,ay]=s[i-1], [bx,by]=s[i], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy;
+    const t=L?Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/L)):0;
+    best=Math.min(best,Math.hypot(x-ax-t*dx,y-ay-t*dy));
+  }
+  return best;
+}
+/* Every top-level object under the pointer, best first: a connection the pointer is on, then shapes the
+   pointer is inside (smallest first, so small shapes are not hidden by large ones), then shapes the
+   pointer is only near. */
+function stackAt(e){
+  const pt=toPage(e), tol=HIT_TOL_PX/S.zoom, seen=new Set(), hits=[];
+  for(const n of document.elementsFromPoint(e.clientX,e.clientY)){
+    const g=n.closest&&n.closest('#layer > [data-id]'); if(!g) continue;
+    const id=g.dataset.id; if(seen.has(id)||!S.elById[id]) continue; seen.add(id);
+    let rank, area=0;
+    if(isConnector(id)){
+      if(!n.closest('text')&&distToLines(S.lines[id],pt.px,pt.py)>tol) continue;
+      rank=0;
+    } else {
+      const b=S.boxes[id]; if(!b) continue;
+      rank=pt.px>=b.x0&&pt.px<=b.x1&&pt.py>=b.y0&&pt.py<=b.y1?1:2; area=(b.x1-b.x0)*(b.y1-b.y0);
+    }
+    hits.push({id,rank,area,z:hits.length});
+  }
+  return hits.sort((a,b)=>a.rank-b.rank||a.area-b.area||a.z-b.z).map(h=>h.id);
+}
+/* With Alt held, a selected object under the pointer keeps priority, so a covered shape can be dragged */
+const pickFrom=(stack,alt)=>(alt&&stack.includes(S.sel)?S.sel:stack[0])??null;
+
+/* ---------- hover feedback ---------- */
+const hoverLayer=svgEl('g',{id:'hover'}); $('view').insertBefore(hoverLayer,$('overlay'));
+let hoverEvt=null, hoverRaf=0;
+function setHover(id){ if(S.hover===id) return; S.hover=id; drawHover(); }
+function drawHover(){
+  hoverLayer.replaceChildren();
+  const id=S.hover&&S.elById[S.hover]?S.hover:null, line=!!id&&isConnector(id);
+  stage.classList.toggle('over-shape',!!id&&!line); stage.classList.toggle('over-line',line);
+  if(!id||S.selection.has(id)) return;
+  if(line){ for(const s of S.lines[id]||[]) hoverLayer.appendChild(svgEl('path',{d:'M'+s.map(q=>q[0].toFixed(2)+' '+q[1].toFixed(2)).join('L'),class:'hoverline'})); return; }
+  const b=S.boxes[id];
+  if(b) hoverLayer.appendChild(svgEl('rect',{x:b.x0,y:b.y0,width:Math.max(b.x1-b.x0,0.5),height:Math.max(b.y1-b.y0,0.5),class:'hoverbox'}));
+}
+svg.addEventListener('pointermove',e=>{
+  if(drag) return; hoverEvt=e;
+  if(!hoverRaf) hoverRaf=requestAnimationFrame(()=>{ hoverRaf=0; if(!drag&&hoverEvt) setHover(pickFrom(stackAt(hoverEvt),hoverEvt.altKey)); });
+});
+svg.addEventListener('pointerleave',()=>setHover(null));
+
+/* ---------- marquee and multi-move ---------- */
+function updateMarquee(d,p){
+  const r={x0:Math.min(d.p0.px,p.px),y0:Math.min(d.p0.py,p.py),x1:Math.max(d.p0.px,p.px),y1:Math.max(d.p0.py,p.py)};
+  const inside=topLevelIds().filter(id=>{ const b=S.boxes[id]; return b&&b.x0>=r.x0&&b.x1<=r.x1&&b.y0>=r.y0&&b.y1<=r.y1; });
+  const ids=d.add?[...new Set([...d.base,...inside])]:inside;
+  S.selection=new Set(ids); S.sel=ids.includes(S.sel)?S.sel:(ids[0]??null);
+  drawOverlay();
+  $('overlay').appendChild(svgEl('rect',{x:r.x0,y:r.y0,width:r.x1-r.x0,height:r.y1-r.y0,class:'marquee'}));
+}
+/* Snaps the lead shape to the grid and moves the rest by the same amount, so their spacing is kept */
+function moveDrag(d,dx,dy,free){
+  const lead=shapeCtx(d.orig.get(d.lead),null), W=num(lead,'Width',0), H=num(lead,'Height',0);
+  const left=num(lead,'PinX',0)-num(lead,'LocPinX',W/2), bottom=num(lead,'PinY',0)-num(lead,'LocPinY',H/2);
+  let L=left+dx, B=bottom+dy; if(!free){ L=snapIn(L); B=snapIn(B); }
+  for(const [id,orig] of d.orig){ const el=S.elById[id], o=shapeCtx(orig,null); if(!el) continue;
+    setCell(el,'PinX',num(o,'PinX',0)+L-left); setCell(el,'PinY',num(o,'PinY',0)+B-bottom); }
+  render(); refreshForMany(d.ids); render();
+}
+
+/* ---------- pointer interaction ---------- */
+let spaceHeld=false;
+function setSpaceHeld(v){ spaceHeld=v; stage.classList.toggle('panning',v); }
 svg.addEventListener('pointerdown',e=>{
   if(S.editing) commitText();
   if(e.button!==0&&e.button!==1) return;
-  const p=toPage(e), hEl=e.target.closest('[data-handle]'), gEl=e.target.closest('#layer [data-id]');
-  if(e.button===1||(!gEl&&!hEl)){
-    if(e.button===0) select(null);
-    drag={kind:'pan',cx:e.clientX,cy:e.clientY,px:S.panX,py:S.panY};
-  } else if(S.tool==='connect'&&gEl){
-    const id=gEl.dataset.id; if(is1D(shapeCtx(S.elById[id],null))) return;
-    drag={kind:'connect',from:id,p0:p,moved:false};
-  } else if(hEl){
+  setHover(null);
+  const p=toPage(e), hEl=e.target.closest('[data-handle]'), additive=e.shiftKey||e.ctrlKey||e.metaKey;
+  const stack=hEl?[]:stackAt(e), pick=pickFrom(stack,e.altKey);
+  const pan=()=>({kind:'pan',cx:e.clientX,cy:e.clientY,px:S.panX,py:S.panY});
+  if(e.button===1||spaceHeld) drag=pan();
+  else if(hEl&&S.selection.size===1){
     const h=hEl.dataset.handle;
     drag={kind:h.length>2?'end':'resize',h,id:S.sel,orig:S.elById[S.sel].cloneNode(true),snap:snapshot(),p0:p,moved:false};
-  } else {
-    const id=gEl.dataset.id; select(id);
-    if(is1D(shapeCtx(S.elById[id],null))) return;   // connections follow their shapes; they are not dragged on their own
-    drag={kind:'move',id,orig:S.elById[id].cloneNode(true),snap:snapshot(),p0:p,moved:false};
+  } else if(S.tool==='connect'){
+    if(!pick){ select(null); drag=pan(); }
+    else if(isConnector(pick)) return;
+    else drag={kind:'connect',from:pick,p0:p,moved:false};
+  } else if(!pick){
+    if(!additive) select(null);
+    drag={kind:'marquee',p0:p,add:additive,base:new Set(S.selection),moved:false};
+  } else if(additive){ toggleSelection(pick); return; }
+  else {
+    const wasSelected=S.selection.has(pick), prev=S.sel;
+    if(wasSelected){ S.sel=pick; drawOverlay(); updateProps(); } else select(pick);
+    const ids=selIds().filter(id=>!isConnector(id));   // connections follow their shapes; they are not dragged on their own
+    const base={pick,prev,stack,alt:e.altKey,collapse:wasSelected&&S.selection.size>1,p0:p,moved:false};
+    drag=ids.length?{...base,kind:'move',ids,lead:ids.includes(pick)?pick:ids[0],
+      orig:new Map(ids.map(id=>[id,S.elById[id].cloneNode(true)])),snap:snapshot()}:{...base,kind:'click'};
   }
   svg.setPointerCapture(e.pointerId); e.preventDefault();
 });
@@ -1122,24 +1276,15 @@ svg.addEventListener('pointermove',e=>{
   const p=toPage(e), dx=p.x-drag.p0.x, dy=p.y-drag.p0.y;
   if(!drag.moved&&Math.hypot(dx,dy)*PX*S.zoom<3) return;
   drag.moved=true;
+  if(drag.kind==='click') return;
+  if(drag.kind==='marquee'){ updateMarquee(drag,p); return; }
+  if(drag.kind==='move'){ moveDrag(drag,dx,dy,e.altKey); return; }
   if(drag.kind==='connect'){
     drawOverlay(); const c=centreOf(drag.from);
     $('overlay').appendChild(svgEl('line',{x1:c[0],y1:c[1],x2:p.px,y2:p.py,class:'ghost'})); return;
   }
   const el=S.elById[drag.id], o=shapeCtx(drag.orig,null);
-  if(drag.kind==='move'){
-    if(is1D(o)){
-      if(!drag.unglued){ setGlue(drag.id,'Begin',null); setGlue(drag.id,'End',null); drag.unglued=true; }
-      for(const [n,d] of [['BeginX',dx],['BeginY',dy],['EndX',dx],['EndY',dy]]) setCell(el,n,num(o,n,0)+d);
-      render(); refreshConnector(drag.id);
-    } else {
-      const W=num(o,'Width',0), H=num(o,'Height',0), lx=num(o,'LocPinX',W/2), ly=num(o,'LocPinY',H/2);
-      let L=num(o,'PinX',0)-lx+dx, B=num(o,'PinY',0)-ly+dy;
-      if(!e.altKey){ L=snapIn(L); B=snapIn(B); }
-      setCell(el,'PinX',L+lx); setCell(el,'PinY',B+ly);
-      render(); refreshFor(drag.id);
-    }
-  } else if(drag.kind==='resize'){
+  if(drag.kind==='resize'){
     const fresh=drag.orig.cloneNode(true); el.parentNode.replaceChild(fresh,el); S.elById[drag.id]=fresh;
     const W0=num(o,'Width',1), H0=num(o,'Height',1), lx=num(o,'LocPinX',W0/2), ly=num(o,'LocPinY',H0/2);
     let L=num(o,'PinX',0)-lx, B=num(o,'PinY',0)-ly, R=L+W0, T=B+H0; const min=0.1;
@@ -1160,6 +1305,12 @@ svg.addEventListener('pointermove',e=>{
 svg.addEventListener('pointerup',e=>{
   if(!drag) return; const d=drag; drag=null;
   if(svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+  if(d.kind==='marquee'){ if(d.moved){ drawOverlay(); updateProps(); } return; }
+  if((d.kind==='move'||d.kind==='click')&&!d.moved){
+    if(d.alt&&d.stack.length>1){ const next=d.stack[(d.stack.indexOf(d.prev)+1)%d.stack.length]; select(next); }   // Alt+click: the object underneath
+    else if(d.collapse) select(d.pick);   // a plain click inside a multi-selection keeps only that object
+    return;
+  }
   if(d.kind==='connect'){
     drawOverlay(); if(!d.moved) return;
     const p=toPage(e), tgt=hitShape(e,d.from);
@@ -1174,9 +1325,15 @@ svg.addEventListener('pointerup',e=>{
   }
   if(d.moved&&d.snap){ pushUndo(d.snap); render(); }
 });
-/* Pointer capture retargets dblclick to the svg in Chromium, so find the shape from the pointer position instead */
-const shapeGroupAt=e=>{ for(const n of document.elementsFromPoint(e.clientX,e.clientY)){ const g=n.closest&&n.closest('#layer [data-id]'); if(g) return g; } return null; };
-svg.addEventListener('dblclick',e=>{ const g=shapeGroupAt(e); if(g){ select(g.dataset.id); editText(g.dataset.id,undefined,toPage(e)); } });
+/* A cancelled gesture (a touch taken over by the system, say) puts the drawing back as the text has it */
+svg.addEventListener('pointercancel',()=>{
+  const d=drag; drag=null; if(!d) return;
+  if(d.moved&&d.snap){ console.warn('Pointer gesture cancelled; reverting',d.kind); rebuild(selMemo()); } else drawOverlay();
+});
+svg.addEventListener('dblclick',e=>{
+  const st=stackAt(e), id=st.includes(S.sel)?S.sel:st[0]; if(!id) return;
+  select(id); editText(id,undefined,toPage(e));
+});
 stage.addEventListener('wheel',e=>{
   e.preventDefault(); const r=svg.getBoundingClientRect();
   if(e.ctrlKey||e.metaKey) zoomAt(Math.exp(-e.deltaY*0.0015),e.clientX-r.left,e.clientY-r.top);
@@ -1230,15 +1387,31 @@ function updateProps(){
   $('pDelete').textContent=key?'Remove the key':oneD?'Delete connection':'Delete shape';
   if(oneD) updateConnProps(el);
   if(TP.open&&TP.mode==='flow'){ const c=curLineFor(); if(c!==TP.cur){ TP.cur=c; paintCode(); } }
+  if(S.selection.size>1) showMultiProps();
 }
 const selEl=()=>S.sel&&S.elById[S.sel];
+/* Shown in place of the single-shape fields when more than one object is selected */
+function showMultiProps(){
+  const els=selEls();
+  $('selTitle').textContent=`${els.length} items selected`;
+  for(const w of ['textWrap','sizeRow','connBox','tableBtns','tableHint','orderBtns']) $(w).hidden=true;
+  $('fillWrap').hidden=!els.some(fillable);
+  $('lineWrap').hidden=$('weightWrap').hidden=!els.some(styleable);
+  $('pDelete').textContent=`Delete ${els.length} items`;
+}
+const styleable=el=>roleOf(el)!=='key'&&!isTable(el);
+const fillable=el=>styleable(el)&&!is1D(shapeCtx(el,null));
+function styleSelection(filter,apply){ const els=selEls().filter(filter); if(els.length) commit(()=>els.forEach(apply)); }
+$('pFill').addEventListener('change',()=>{ const v=$('pFill').value.toUpperCase();
+  styleSelection(fillable,el=>{ setCell(el,'FillForegnd',v); setCell(el,'FillPattern',1); }); });
+$('pLine').addEventListener('change',()=>{ const v=$('pLine').value.toUpperCase();
+  styleSelection(styleable,el=>{ setCell(el,'LineColor',v); if(num(shapeCtx(el,null),'LinePattern',1)===0) setCell(el,'LinePattern',1); }); });
+$('pWeight').addEventListener('change',()=>{ const v=+$('pWeight').value;
+  styleSelection(styleable,el=>{ if(v===0) setCell(el,'LinePattern',0); else { setCell(el,'LinePattern',1); setCell(el,'LineWeight',v/72); } }); });
+$('pDelete').onclick=()=>deleteShapes(selIds());
 $('pAddRow').onclick=()=>{ if(S.sel) resizeTable(S.sel,true); };
 $('pDelRow').onclick=()=>{ if(S.sel) resizeTable(S.sel,false); };
 $('pText').addEventListener('change',()=>{ const el=selEl(); if(el) commit(()=>setText(el,$('pText').value)); });
-$('pFill').addEventListener('change',()=>{ const el=selEl(); if(el) commit(()=>{ setCell(el,'FillForegnd',$('pFill').value.toUpperCase()); setCell(el,'FillPattern',1); }); });
-$('pLine').addEventListener('change',()=>{ const el=selEl(); if(el) commit(()=>{ setCell(el,'LineColor',$('pLine').value.toUpperCase()); if(num(shapeCtx(el,null),'LinePattern',1)===0) setCell(el,'LinePattern',1); }); });
-$('pWeight').addEventListener('change',()=>{ const el=selEl(); if(!el) return; const v=+$('pWeight').value;
-  commit(()=>{ if(v===0) setCell(el,'LinePattern',0); else { setCell(el,'LinePattern',1); setCell(el,'LineWeight',v/72); } }); });
 function sizeFromProps(){
   const el=selEl(); if(!el) return; const sh=shapeCtx(el,null);
   const W=Math.max(3,+$('pW').value||0)*MM, H=Math.max(3,+$('pH').value||0)*MM;
@@ -1248,7 +1421,6 @@ function sizeFromProps(){
 $('pW').addEventListener('change',sizeFromProps); $('pH').addEventListener('change',sizeFromProps);
 $('pFront').onclick=()=>{ const el=selEl(); if(el) moveStatement(el,true); };
 $('pBack').onclick=()=>{ const el=selEl(); if(el) moveStatement(el,false); };
-$('pDelete').onclick=()=>{ if(S.sel) deleteShape(S.sel); };
 
 /* ---------- open / save: see the flow module ---------- */
 $('fileInput').addEventListener('change',async e=>{ const f=e.target.files[0]; e.target.value=''; if(f) await openAny(f,null); });
@@ -2548,20 +2720,27 @@ function syncFromModel(){
 
 /* ---------- document state, undo and rebuild ---------- */
 const BLANK_FLOW='flow 1\n\npage "Page-1" size 297x210\n';
+/* a new shape has no FlowId until syncFromModel names it, so keep the element and read its name back at reselect time */
+const memoFor=el=>is1D(shapeCtx(el,null))?{edgeEl:el,key:userV(el,'FlowEdge')}:{el,fid:userV(el,'FlowId')};
+/* the primary selection comes first so it stays primary after a rebuild */
 function selMemo(){
-  const el=S.sel&&S.elById[S.sel]; if(!el) return null;
-  return is1D(shapeCtx(el,null))?{edgeEl:el,key:userV(el,'FlowEdge')}:{fid:userV(el,'FlowId')};
+  const ids=[S.sel,...selIds().filter(id=>id!==S.sel)].filter(id=>id&&S.elById[id]);
+  return ids.length?ids.map(id=>memoFor(S.elById[id])):null;
 }
-function reselect(memo,sync){
-  if(!memo){ S.sel=null; return; }
+function findByMemo(memo,sync,top){
+  const fid=memo.fid||(memo.el&&userV(memo.el,'FlowId'));
+  if(fid) return top.find(t=>userV(t,'FlowId')===fid)||null;
+  if(memo.el) return null;
+  let line=sync&&sync.placedTags&&sync.placedTags.get(memo.edgeEl);
+  if(line==null&&memo.key!=null) line=sync&&sync.lineMap?sync.lineMap.get(+memo.key):+memo.key;
+  return line!=null?top.find(t=>userV(t,'FlowEdge')===String(line))||null:null;
+}
+function reselect(memos,sync){
+  if(!memos){ S.sel=null; S.selection=new Set(); return; }
   const pg=pageCtx(); if(!pg) return;
   const top=kids(kid(pg.doc.documentElement,'Shapes'),'Shape');
-  let el=null;
-  if(memo.fid) el=top.find(t=>userV(t,'FlowId')===memo.fid);
-  else { let line=sync&&sync.placedTags&&sync.placedTags.get(memo.edgeEl);
-    if(line==null&&memo.key!=null) line=sync&&sync.lineMap?sync.lineMap.get(+memo.key):+memo.key;
-    if(line!=null) el=top.find(t=>userV(t,'FlowEdge')===String(line)); }
-  S.sel=el?el.getAttribute('ID'):null;
+  const ids=[].concat(memos).map(m=>findByMemo(m,sync,top)).filter(Boolean).map(el=>el.getAttribute('ID'));
+  S.sel=ids[0]??null; S.selection=new Set(ids);
 }
 function rebuild(memo,sync){
   const ast=parseFlow(S.text);
@@ -2896,7 +3075,7 @@ function selectFromCaret(){
     if(pi!==S.pi){ S.pi=pi; renderTabs(); render(); }
     const top=kids(kid(pageCtx().doc.documentElement,'Shapes'),'Shape');
     const el=top.find(t=>d?userV(t,'FlowId')===d.id:k?userV(t,'FlowId')==='__key':userV(t,'FlowEdge')===String(line));
-    if(el){ S.sel=el.getAttribute('ID'); drawOverlay(); updateProps(); TP.cur=line; paintCode(); }
+    if(el){ select(el.getAttribute('ID')); TP.cur=line; paintCode(); }
   });
 }
 codeText.addEventListener('click',selectFromCaret); codeText.addEventListener('keyup',e=>{ if(e.key.startsWith('Arrow')||e.key==='Home'||e.key==='End'||e.key.startsWith('Page')) selectFromCaret(); });
@@ -2929,24 +3108,28 @@ $('btnZoomIn').onclick=()=>zc(1.25); $('btnZoomOut').onclick=()=>zc(0.8); $('btn
 document.addEventListener('keydown',e=>{
   if(document.querySelector('dialog[open]')) return;   // keys belong to the open dialog
   const typing=['INPUT','TEXTAREA','SELECT'].includes((document.activeElement||{}).tagName);
-  const mod=e.ctrlKey||e.metaKey, k=e.key.toLowerCase();
+  const mod=e.ctrlKey||e.metaKey, k=e.key.toLowerCase(), one=S.selection.size===1;
   if(mod&&k==='s'){ e.preventDefault(); save(e.shiftKey); return; }
   if(mod&&k==='o'){ e.preventDefault(); openFile(); return; }
   if(mod&&k==='e'){ e.preventDefault(); setPane(!TP.open,TP.pinned); return; }
   if(typing) return;
+  if(e.key===' '&&!mod&&(document.activeElement||{}).tagName!=='BUTTON'){ e.preventDefault(); if(!e.repeat) setSpaceHeld(true); return; }
   if(mod&&k==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
   if(mod&&k==='y'){ e.preventDefault(); redo(); return; }
+  if(mod&&k==='a'){ e.preventDefault(); selectAll(); return; }
   if(mod&&k==='d'){ e.preventDefault(); duplicate(); return; }
-  if((e.key==='Delete'||e.key==='Backspace')&&S.sel){ e.preventDefault(); deleteShape(S.sel); return; }
+  if((e.key==='Delete'||e.key==='Backspace')&&S.selection.size){ e.preventDefault(); deleteShapes(selIds()); return; }
   if(e.key==='Escape'){ setTool('select'); select(null); return; }
-  if(e.key.startsWith('Arrow')&&S.sel){
-    e.preventDefault(); const st=(e.shiftKey?10:1)*MM, id=S.sel;
+  if(e.key.startsWith('Arrow')&&S.selection.size){
+    e.preventDefault(); const st=(e.shiftKey?10:1)*MM, ids=selIds();
     const d={ArrowLeft:[-st,0],ArrowRight:[st,0],ArrowUp:[0,st],ArrowDown:[0,-st]}[e.key];
-    commit(()=>moveBy(id,d[0],d[1])); return;
+    commit(()=>moveMany(ids,d[0],d[1])); return;
   }
-  if(e.key==='F2'&&S.sel){ e.preventDefault(); editText(S.sel); return; }
-  if(!mod&&!e.altKey&&e.key.length===1&&S.sel){ e.preventDefault(); editText(S.sel,e.key); }
+  if(e.key==='F2'&&one){ e.preventDefault(); editText(S.sel); return; }
+  if(!mod&&!e.altKey&&e.key.length===1&&one){ e.preventDefault(); editText(S.sel,e.key); }
 });
+document.addEventListener('keyup',e=>{ if(e.key===' ') setSpaceHeld(false); });
+window.addEventListener('blur',()=>setSpaceHeld(false));
 window.addEventListener('beforeunload',e=>{ if(S.dirty){ e.preventDefault(); e.returnValue=''; } });
 window.addEventListener('resize',()=>applyView());
 
