@@ -1,12 +1,12 @@
 /* ---------- properties panel ---------- */
-import {$, MM, S, colour, kid, kids, setCell} from './core.js';
-import {cellV, is1D, num, setText, shapeCtx, shapeText} from './visio-package.js';
+import {$, colour, DEF, kid, kids, MM, S, setCell} from './core.js';
+import {cellV, is1D, num, rowV, setText, shapeCtx, shapeText} from './visio-package.js';
 import {canResize, pageCtx, render} from './render.js';
 import {refreshFor} from './connectors.js';
 import {applySize, isTable, resizeTable, roleOf} from './shapes.js';
 import {deleteShapes, selEls, selIds} from './selection.js';
 import {plural} from './formats/export.js';
-import {LINE_TEXT_PT, resolveType, setTextPt, SHAPE_TEXT_PT, textPt, userV} from './flow/model.js';
+import {LINE_TEXT_PT, resolveType, setTextColour, setTextPt, SHAPE_TEXT_PT, textPt, userV} from './flow/model.js';
 import {commit} from './document.js';
 import {openAny} from './visio-io.js';
 import {moveStatement, updateConnProps} from './connection-props.js';
@@ -28,9 +28,10 @@ export function updateProps(){
   if(document.activeElement!==$('pText')) $('pText').value=shapeText(sh);
   $('pFill').value=colour(cellV(sh,'FillForegnd',null),'#FFFFFF').toLowerCase();
   $('pLine').value=colour(cellV(sh,'LineColor',null),'#000000').toLowerCase();
+  $('pTextCol').value=colour(rowV(sh,'Character','0','Color'),DEF.text).toLowerCase();
   const pt=num(sh,'LineWeight',0.01)*72, opts=[...$('pWeight').options].map(o=>+o.value);
   $('pWeight').value=String(opts.reduce((x,y)=>Math.abs(y-pt)<Math.abs(x-pt)?y:x));
-  for(const w of ['textWrap','lineWrap','weightWrap']) $(w).hidden=table||key;
+  for(const w of ['textWrap','lineWrap','weightWrap','textColWrap']) $(w).hidden=table||key;
   $('sizeWrap').hidden=table||key; showSize([el]);
   $('tableBtns').hidden=$('tableHint').hidden=!table;
   $('editHint').hidden=table||key;
@@ -49,7 +50,7 @@ function showMultiProps(){
   $('selTitle').textContent=`${els.length} items selected`;
   for(const w of ['textWrap','editHint','sizeRow','connBox','tableBtns','tableHint','orderBtns']) $(w).hidden=true;
   $('fillWrap').hidden=!els.some(fillable);
-  $('lineWrap').hidden=$('weightWrap').hidden=!els.some(styleable);
+  $('lineWrap').hidden=$('weightWrap').hidden=$('textColWrap').hidden=!els.some(styleable);
   $('sizeWrap').hidden=!els.some(styleable); showSize(els.filter(styleable));
   $('pDelete').textContent=`Delete ${els.length} items`;
 }
@@ -82,6 +83,7 @@ export function init(){
   $('pSize').addEventListener('change',()=>{ const v=+$('pSize').value; if(v) styleSelection(styleable,el=>setTextPt(el,v)); });
   $('pFill').addEventListener('change',()=>{ const v=$('pFill').value.toUpperCase();
     styleSelection(fillable,el=>{ setCell(el,'FillForegnd',v); setCell(el,'FillPattern',1); }); });
+  $('pTextCol').addEventListener('change',()=>{ const v=$('pTextCol').value; styleSelection(styleable,el=>setTextColour(el,v)); });
   $('pLine').addEventListener('change',()=>{ const v=$('pLine').value.toUpperCase();
     styleSelection(styleable,el=>{ setCell(el,'LineColor',v); if(num(shapeCtx(el,null),'LinePattern',1)===0) setCell(el,'LinePattern',1); }); });
   $('pWeight').addEventListener('change',()=>{ const v=+$('pWeight').value;

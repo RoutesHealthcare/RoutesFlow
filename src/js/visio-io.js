@@ -35,7 +35,7 @@ export function graphStatements(g,{ox=PAGE_MARGIN,oy=PAGE_MARGIN,used=new Set(),
   for(const e of g.edges){
     const from=ids.get(e.from), to=ids.get(e.to); if(!from||!to||from===to) continue;
     const via=placed&&e.route==='elbow'&&e.via?e.via.map(([x,y])=>[ox+x*25.4,oy+y*25.4]):null;   // bends are in inches, like node positions
-    lines.push(edgeStmt({from,to,style:e.style||'solid',start:e.start||'none',end:e.end||(e.directed===false?'none':'arrow'),means:e.means||'',stroke:e.stroke||null,weight:e.weight||null,size:e.size||null,label:e.label||'',route:e.route||null,via}));
+    lines.push(edgeStmt({from,to,style:e.style||'solid',start:e.start||'none',end:e.end||(e.directed===false?'none':'arrow'),means:e.means||'',stroke:e.stroke||null,weight:e.weight||null,size:e.size||null,text:e.text||null,label:e.label||'',route:e.route||null,via}));
   }
   return {lines,ids};
 }

@@ -307,6 +307,7 @@ button:disabled{opacity:.55;cursor:default}
     <div class="row">
       <label id="fillWrap">Fill<input type="color" id="pFill"></label>
       <label id="lineWrap">Line<input type="color" id="pLine"></label>
+      <label id="textColWrap">Text<input type="color" id="pTextCol"></label>
     </div>
     <label id="weightWrap">Line weight
       <select id="pWeight">
@@ -1040,6 +1041,10 @@ button:disabled{opacity:.55;cursor:default}
     const v = parseFloat(rowV(sh, "Character", "0", "Size"));
     return Number.isFinite(v) ? Math.round(v * 72 * 2) / 2 : null;
   };
+  function setTextColour(el, hex) {
+    const c = rowCellEl(el, "Character", "0", "Color");
+    if (c && hex) c.setAttribute("V", hex.toUpperCase());
+  }
   function setTextPt(el, pt) {
     const c = rowCellEl(el, "Character", "0", "Size");
     if (c && pt) c.setAttribute("V", String(pt / 72));
@@ -1060,6 +1065,7 @@ button:disabled{opacity:.55;cursor:default}
     if (e.route === "elbow") setUser(el, "FlowRoute", "elbow");
     else delUser(el, "FlowRoute");
     setTextPt(el, e.size || LINE_TEXT_PT);
+    setTextColour(el, e.text || DEF.text);
     if (e.route === "elbow" && e.via && e.via.length) setUser(el, "FlowVia", viaToStr(e.via));
     else delUser(el, "FlowVia");
     setCell(el, "BeginArrow", visioEnd(e.start));
@@ -1077,7 +1083,7 @@ button:disabled{opacity:.55;cursor:default}
   };
   function edgeStyleOf(el) {
     const sh = shapeCtx(el, null), lp = num(sh, "LinePattern", 1), stroke = colour(cellV(sh, "LineColor", null), null);
-    const route = userV(el, "FlowRoute") === "elbow" ? "elbow" : null, via = route && parseVia(userV(el, "FlowVia")), pt = textPt(sh);
+    const route = userV(el, "FlowRoute") === "elbow" ? "elbow" : null, via = route && parseVia(userV(el, "FlowVia")), pt = textPt(sh), tc = colour(rowV(sh, "Character", "0", "Color"), null);
     return {
       style: lp === 3 ? "dotted" : lp >= 2 ? "dashed" : "solid",
       start: markerOf(el, sh, "Begin"),
@@ -1087,7 +1093,8 @@ button:disabled{opacity:.55;cursor:default}
       weight: weightOf(sh),
       route,
       via: via && via.length ? via : null,
-      size: pt && Math.abs(pt - LINE_TEXT_PT) > 0.01 ? pt : null
+      size: pt && Math.abs(pt - LINE_TEXT_PT) > 0.01 ? pt : null,
+      text: tc && tc.toUpperCase() !== DEF.text.toUpperCase() ? tc.toUpperCase() : null
     };
   }
   function drawMarker(g, from, tip, kind, sz, col) {
@@ -1616,7 +1623,7 @@ button:disabled{opacity:.55;cursor:default}
   var FLOW_KINDS;
   var FLOW_ID = /^[A-Za-z_][\w-]*$/;
   var SHAPE_ATTRS = ["fill", "stroke", "text", "weight", "size", "icon"];
-  var EDGE_ATTRS = ["style", "start", "end", "stroke", "weight", "size", "means", "route", "via"];
+  var EDGE_ATTRS = ["style", "start", "end", "stroke", "weight", "size", "text", "means", "route", "via"];
   var ICON_DATA = /^data:image\/(?:svg\+xml|png);base64,[A-Za-z0-9+/]+=*$/;
   var MAX_ICON_CHARS = 2e6;
   var iconStmt = (name, data) => `icon ${name} ${qs(data)}`;
@@ -1916,8 +1923,8 @@ button:disabled{opacity:.55;cursor:default}
     } else tok = CONN[t].token;
     const elbow = e.route === "elbow";
     Object.assign(a, orderedAttrs(
-      { stroke: e.stroke, weight: e.weight, size: e.size, means: e.means, route: elbow ? "elbow" : null, via: elbow && e.via && e.via.length ? viaToStr(e.via) : null },
-      ["stroke", "weight", "size", "means", "route", "via"]
+      { stroke: e.stroke, weight: e.weight, size: e.size, text: e.text, means: e.means, route: elbow ? "elbow" : null, via: elbow && e.via && e.via.length ? viaToStr(e.via) : null },
+      ["stroke", "weight", "size", "text", "means", "route", "via"]
     ));
     let s = `${e.from} ${tok} ${e.to}`;
     const as = attrStr(a);
@@ -4495,7 +4502,7 @@ ${cells.map((c) => "        " + c).join("\n")}
       const from = ids.get(e.from), to = ids.get(e.to);
       if (!from || !to || from === to) continue;
       const via = placed && e.route === "elbow" && e.via ? e.via.map(([x, y]) => [ox + x * 25.4, oy + y * 25.4]) : null;
-      lines.push(edgeStmt({ from, to, style: e.style || "solid", start: e.start || "none", end: e.end || (e.directed === false ? "none" : "arrow"), means: e.means || "", stroke: e.stroke || null, weight: e.weight || null, size: e.size || null, label: e.label || "", route: e.route || null, via }));
+      lines.push(edgeStmt({ from, to, style: e.style || "solid", start: e.start || "none", end: e.end || (e.directed === false ? "none" : "arrow"), means: e.means || "", stroke: e.stroke || null, weight: e.weight || null, size: e.size || null, text: e.text || null, label: e.label || "", route: e.route || null, via }));
     }
     return { lines, ids };
   }
@@ -4770,9 +4777,10 @@ ${cells.map((c) => "        " + c).join("\n")}
     if (document.activeElement !== $("pText")) $("pText").value = shapeText(sh);
     $("pFill").value = colour(cellV(sh, "FillForegnd", null), "#FFFFFF").toLowerCase();
     $("pLine").value = colour(cellV(sh, "LineColor", null), "#000000").toLowerCase();
+    $("pTextCol").value = colour(rowV(sh, "Character", "0", "Color"), DEF.text).toLowerCase();
     const pt = num(sh, "LineWeight", 0.01) * 72, opts = [...$("pWeight").options].map((o) => +o.value);
     $("pWeight").value = String(opts.reduce((x, y) => Math.abs(y - pt) < Math.abs(x - pt) ? y : x));
-    for (const w of ["textWrap", "lineWrap", "weightWrap"]) $(w).hidden = table || key;
+    for (const w of ["textWrap", "lineWrap", "weightWrap", "textColWrap"]) $(w).hidden = table || key;
     $("sizeWrap").hidden = table || key;
     showSize([el]);
     $("tableBtns").hidden = $("tableHint").hidden = !table;
@@ -4800,7 +4808,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     $("selTitle").textContent = `${els.length} items selected`;
     for (const w of ["textWrap", "editHint", "sizeRow", "connBox", "tableBtns", "tableHint", "orderBtns"]) $(w).hidden = true;
     $("fillWrap").hidden = !els.some(fillable);
-    $("lineWrap").hidden = $("weightWrap").hidden = !els.some(styleable);
+    $("lineWrap").hidden = $("weightWrap").hidden = $("textColWrap").hidden = !els.some(styleable);
     $("sizeWrap").hidden = !els.some(styleable);
     showSize(els.filter(styleable));
     $("pDelete").textContent = `Delete ${els.length} items`;
@@ -4858,6 +4866,10 @@ ${cells.map((c) => "        " + c).join("\n")}
         setCell(el, "FillForegnd", v);
         setCell(el, "FillPattern", 1);
       });
+    });
+    $("pTextCol").addEventListener("change", () => {
+      const v = $("pTextCol").value;
+      styleSelection(styleable, (el) => setTextColour(el, v));
     });
     $("pLine").addEventListener("change", () => {
       const v = $("pLine").value.toUpperCase();
@@ -6428,6 +6440,7 @@ ${cells.map((c) => "        " + c).join("\n")}
     stroke: "Line colour",
     weight: "Line weight in points",
     size: "Label size in points",
+    text: "Label colour",
     means: "Meaning shown in the key",
     route: "Straight or right-angled",
     via: 'Bend points in mm, like "40,20 40,60"'

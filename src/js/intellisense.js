@@ -13,7 +13,7 @@ const ID='[A-Za-z_][\\w-]*';
 const STATEMENTS=[['page','Start a page: page "Name" size 297x210'],['key','Add the key that explains the lines'],['icon','Define a picture: icon name "data:image/svg+xml;base64,..."']];
 const SHAPE_SETTINGS={fill:'Fill colour',stroke:'Line colour',text:'Text colour',weight:'Line weight in points',size:'Text size in points',icon:'Picture kept from an import'};
 const LINE_SETTINGS={style:'Line pattern',start:'Line end at the start',end:'Line end at the finish',stroke:'Line colour',weight:'Line weight in points',
-  size:'Label size in points',means:'Meaning shown in the key',route:'Straight or right-angled',via:'Bend points in mm, like "40,20 40,60"'};
+  size:'Label size in points',text:'Label colour',means:'Meaning shown in the key',route:'Straight or right-angled',via:'Bend points in mm, like "40,20 40,60"'};
 const COLOURS=[['#FA4616','Blood Orange'],['#00B5E2','Cyan'],['#44D62C','Green'],['#DCE3EB','Silver'],['#282822','Charcoal'],['#FFFFFF','White'],
   ['#F0A63E','Yellow'],['#50B29C','Teal'],['#006F8E','Harbor Blue'],['#2B3A47','Default line']];
 const PAGE_SIZES=[['297x210','A4 landscape'],['210x297','A4 portrait'],['420x297','A3 landscape'],['594x420','A2 landscape'],['841x594','A1 landscape']];

@@ -89,6 +89,8 @@ const visioEnd=m=>m in VISIO_END?VISIO_END[m]:(m==='open'||m==='triangle'?13:0);
 /* Text size in points. Shapes are built at 11 pt and connection labels at 9 pt; the text only records other sizes. */
 export const SHAPE_TEXT_PT=11, LINE_TEXT_PT=9;
 export const textPt=sh=>{ const v=parseFloat(rowV(sh,'Character','0','Size')); return Number.isFinite(v)?Math.round(v*72*2)/2:null; };
+/* Text colour as a #RRGGBB hex string */
+export function setTextColour(el,hex){ const c=rowCellEl(el,'Character','0','Color'); if(c&&hex) c.setAttribute('V',hex.toUpperCase()); }
 export function setTextPt(el,pt){ const c=rowCellEl(el,'Character','0','Size'); if(c&&pt) c.setAttribute('V',String(pt/72)); }
 /* Bend points of a right-angled connection, in mm from the page's top-left corner. In the text they read
    via="40,20 40,60". parseVia gives [] for none and null for anything it cannot read. */
@@ -104,7 +106,7 @@ export function setEdgeStyle(el,e){
   setUser(el,'FlowStart',e.start||'none'); setUser(el,'FlowEnd',e.end||'none');
   if(e.means) setUser(el,'FlowMeans',e.means); else delUser(el,'FlowMeans');
   if(e.route==='elbow') setUser(el,'FlowRoute','elbow'); else delUser(el,'FlowRoute');
-  setTextPt(el,e.size||LINE_TEXT_PT);
+  setTextPt(el,e.size||LINE_TEXT_PT); setTextColour(el,e.text||DEF.text);
   if(e.route==='elbow'&&e.via&&e.via.length) setUser(el,'FlowVia',viaToStr(e.via)); else delUser(el,'FlowVia');
   setCell(el,'BeginArrow',visioEnd(e.start)); setCell(el,'EndArrow',visioEnd(e.end));
   setCell(el,'LineColor',e.stroke||DEF.line); setCell(el,'LineWeight',(e.weight||1)/72);
@@ -113,10 +115,10 @@ export function markerOf(el,sh,end){ const u=userV(el,end==='Begin'?'FlowStart':
 export const weightOf=sh=>{ const w=Math.round(num(sh,'LineWeight',1/72)*72*4)/4; return Math.abs(w-1)>0.01?w:null; };
 export function edgeStyleOf(el){
   const sh=shapeCtx(el,null), lp=num(sh,'LinePattern',1), stroke=colour(cellV(sh,'LineColor',null),null);
-  const route=userV(el,'FlowRoute')==='elbow'?'elbow':null, via=route&&parseVia(userV(el,'FlowVia')), pt=textPt(sh);
+  const route=userV(el,'FlowRoute')==='elbow'?'elbow':null, via=route&&parseVia(userV(el,'FlowVia')), pt=textPt(sh), tc=colour(rowV(sh,'Character','0','Color'),null);
   return {style:lp===3?'dotted':lp>=2?'dashed':'solid',start:markerOf(el,sh,'Begin'),end:markerOf(el,sh,'End'),means:userV(el,'FlowMeans')||'',
     stroke:stroke&&stroke!==DEF.line.toUpperCase()?stroke:null,weight:weightOf(sh),route,via:via&&via.length?via:null,
-    size:pt&&Math.abs(pt-LINE_TEXT_PT)>0.01?pt:null};
+    size:pt&&Math.abs(pt-LINE_TEXT_PT)>0.01?pt:null,text:tc&&tc.toUpperCase()!==DEF.text.toUpperCase()?tc.toUpperCase():null};
 }
 /* draw a line end at tip, for a line arriving from 'from' */
 export function drawMarker(g,from,tip,kind,sz,col){
