@@ -1,0 +1,31 @@
+flow 1
+page "Import and export data flow" direction LR
+
+# What happens to a drawing on the way in and the way out. PNG and PDF are a
+# one-way snapshot: pictures, not diagram files, so they cannot be imported back.
+
+extin: data "Mermaid / PlantUML / DOT / draw.io text" @ 15,15 150x34
+vsdxin: document "Visio .vsdx package" @ 15,120 150x34
+importjs: process "formats/import.js" @ 205,15 140x34
+visiopkg: process "visio-package.js" @ 205,120 140x34
+layoutq: decision "Positions given?" @ 385,60 70x44
+autolayout: process "layout.js - layered auto layout" @ 385,160 160x34
+model: data "Canvas model: shapes, connections, pages" @ 595,60 160x44
+textfmt: process "flow/language.js - .flow text" @ 595,170 160x34
+exportjs: process "formats/export.js" @ 795,15 140x34
+raster: process "formats/raster.js - snapshot of the page as drawn" @ 795,170 160x40
+extout: data "Mermaid / PlantUML / DOT / draw.io" @ 975,15 160x34
+pngpdf: document "PNG / PDF - not re-importable" @ 975,170 160x34
+
+extin -> importjs
+vsdxin -> visiopkg
+importjs -> layoutq
+visiopkg -> layoutq
+layoutq -> autolayout : "no"
+layoutq -> model : "yes"
+autolayout -> model
+model <-> textfmt : "text pane sync"
+model -> exportjs
+model -> raster
+exportjs -> extout
+raster -> pngpdf

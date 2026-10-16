@@ -1,0 +1,28 @@
+flow 1
+page "Module architecture" direction TD
+
+# How RoutesFlow's own source modules fit together. See the README's Developing
+# section for the full file-by-file list; this groups them by role.
+
+main: terminator "main.js - runs each module's init() in order" @ 180,15 150x34
+core: data "core.js - shared state S, constants, DOM/XML helpers" @ 10,90 140x40
+document: process "document.js - document state, undo/redo, rebuild" @ 180,90 150x40
+langsync: process "flow/language.js + flow/sync.js - .flow text parser/writer and text<->canvas sync" @ 360,90 160x40
+model: data "flow/model.js - connection types and user-defined cells" @ 550,90 160x40
+editing: process "shapes.js, selection.js, pointer.js, text-editor.js - shape library and direct manipulation" @ 10,165 140x50
+render: process "render.js - draws shapes to SVG, selection overlay, zoom and pan" @ 180,165 150x44
+formats: process "formats/import.js, formats/export.js, formats/raster.js - Mermaid, PlantUML, DOT, draw.io, PNG, PDF" @ 360,165 160x50
+uichrome: process "palette.js, properties.js, connection-props.js, toolbar.js, text-pane.js, intellisense.js, dialogs.js, tutorial.js - UI chrome" @ 10,245 140x56
+geoconn: process "geometry.js + connectors.js - ShapeSheet geometry, connector routing and glue" @ 180,245 150x44
+visio: process "visio-io.js, visio-package.js, layout.js - reading Visio packages and automatic layout" @ 360,245 160x44
+
+main -> core
+main -> document : "init order"
+document <-> langsync : "sync"
+langsync -> model
+document -> render : "rebuild"
+render -> geoconn
+editing -> document : "commit"
+uichrome -> editing
+document <-> formats : "model"
+visio -> formats

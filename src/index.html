@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow editor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link rel="stylesheet" href="css/flow-editor.css">
+</head>
+<body>
+<header class="bar">
+  <span class="name">Flow editor</span>
+  <button id="btnNew" title="New drawing">New</button>
+  <button id="btnOpen" title="Open a .flow file, or a Mermaid, PlantUML, DOT or draw.io file as a new document (Ctrl+O)">Open</button>
+  <button id="btnSave" title="Save as a .flow file (Ctrl+S)">Save</button>
+  <button id="btnSaveAs" class="hide-sm" title="Save as (Ctrl+Shift+S)">Save as</button>
+  <span class="sep"></span>
+  <button id="btnImport" title="Bring in a Visio drawing, or create shapes from Mermaid, PlantUML, Graphviz DOT or draw.io">Import</button>
+  <button id="btnExport" title="Export this page as Mermaid, PlantUML, Graphviz DOT, draw.io, Visio, PNG or PDF">Export</button>
+  <span class="sep"></span>
+  <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
+  <button id="btnRedo" title="Redo (Ctrl+Y)">Redo</button>
+  <span class="sep"></span>
+  <button id="btnZoomOut" title="Zoom out" aria-label="Zoom out">&minus;</button>
+  <span id="zoomLbl">100%</span>
+  <button id="btnZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+  <button id="btnFit" title="Fit page to window">Fit</button>
+  <span class="sep"></span>
+  <button id="btnTour" title="Replay the guided tour">Tour</button>
+  <span class="grow"></span>
+  <span id="fileName"></span>
+  <input type="file" id="fileInput" accept=".flow,.mmd,.mermaid,.puml,.plantuml,.pu,.dot,.gv,.drawio,.xml,.md,.txt" hidden>
+</header>
+
+<nav class="palette" aria-label="Shapes">
+  <button id="toolConnect" aria-pressed="false" title="Draw connectors between shapes"><svg viewBox="0 0 44 28"><path d="M6 21 34 7"/><path d="M27 6 35 6.5 31 13.5"/></svg>Connect</button>
+  <button data-kind="text" draggable="true" title="Text box"><svg viewBox="0 0 44 28"><path d="M14 7H30M22 7V22"/></svg>Text</button>
+  <details open>
+    <summary>Flowchart</summary>
+    <div class="grp">
+      <button data-kind="process" draggable="true" title="Process"><svg viewBox="0 0 44 28"><rect x="5" y="5" width="34" height="18"/></svg>Process</button>
+      <button data-kind="decision" draggable="true" title="Decision"><svg viewBox="0 0 44 28"><path d="M22 2 41 14 22 26 3 14Z"/></svg>Decision</button>
+      <button data-kind="terminator" draggable="true" title="Start / end"><svg viewBox="0 0 44 28"><rect x="4" y="6" width="36" height="16" rx="8"/></svg>Start / end</button>
+      <button data-kind="data" draggable="true" title="Data"><svg viewBox="0 0 44 28"><path d="M4 23 11 5H40L33 23Z"/></svg>Data</button>
+      <button data-kind="subprocess" draggable="true" title="Subprocess"><svg viewBox="0 0 44 28"><rect x="5" y="5" width="34" height="18"/><path d="M9 5V23M35 5V23"/></svg>Subprocess</button>
+      <button data-kind="document" draggable="true" title="Document"><svg viewBox="0 0 44 28"><path d="M5 4H39V20C30 15 14 27 5 21Z"/></svg>Document</button>
+      <button data-kind="multidoc" draggable="true" title="Documents"><svg viewBox="0 0 44 28"><path d="M5 9H35V22C27 18 13 27 5 23Z"/><path d="M8 9V6H38V19H35M11 6V3H41V16H38"/></svg>Documents</button>
+      <button data-kind="manualInput" draggable="true" title="Manual input"><svg viewBox="0 0 44 28"><path d="M5 11 39 5V23H5Z"/></svg>Manual input</button>
+      <button data-kind="manualOp" draggable="true" title="Manual operation"><svg viewBox="0 0 44 28"><path d="M4 5H40L34 23H10Z"/></svg>Manual operation</button>
+      <button data-kind="preparation" draggable="true" title="Preparation"><svg viewBox="0 0 44 28"><path d="M10 5H34L41 14 34 23H10L3 14Z"/></svg>Preparation</button>
+      <button data-kind="delay" draggable="true" title="Delay"><svg viewBox="0 0 44 28"><path d="M8 5H24A9 9 0 0 1 24 23H8Z"/></svg>Delay</button>
+      <button data-kind="offPage" draggable="true" title="Off-page link"><svg viewBox="0 0 44 28"><path d="M12 3H32V16L22 25 12 16Z"/></svg>Off-page link</button>
+      <button data-kind="ellipse" draggable="true" title="Ellipse"><svg viewBox="0 0 44 28"><ellipse cx="22" cy="14" rx="15" ry="9"/></svg>Ellipse</button>
+    </div>
+  </details>
+  <details>
+    <summary>Database</summary>
+    <div class="grp">
+      <button data-kind="database" draggable="true" title="Database"><svg viewBox="0 0 44 28"><path d="M10 6V22A12 3.5 0 0 0 34 22V6A12 3.5 0 0 0 10 6Z"/><path d="M10 6A12 3.5 0 0 0 34 6"/></svg>Database</button>
+      <button data-kind="table" draggable="true" title="Table"><svg viewBox="0 0 44 28"><path d="M6 4H38V24H6Z"/><path d="M6 10H38M6 15H38M6 20H38"/></svg>Table</button>
+    </div>
+  </details>
+  <details>
+    <summary>UI wireframe</summary>
+    <div class="grp">
+      <button data-kind="browser" draggable="true" title="Browser"><svg viewBox="0 0 44 28"><path d="M4 4H40V24H4Z"/><path d="M4 9H40"/><path d="M14 5.5H37V7.5H14Z"/></svg>Browser</button>
+      <button data-kind="mobile" draggable="true" title="Mobile screen"><svg viewBox="0 0 44 28"><path d="M15 2H29V26H15Z"/><path d="M17 5H27V22H17Z"/></svg>Mobile screen</button>
+      <button data-kind="field" draggable="true" title="Text field"><svg viewBox="0 0 44 28"><path d="M4 9H40V19H4Z"/><path d="M8 11.5V16.5"/></svg>Text field</button>
+      <button data-kind="button" draggable="true" title="Button"><svg viewBox="0 0 44 28"><rect x="5" y="8" width="34" height="12" rx="6"/></svg>Button</button>
+      <button data-kind="dropdown" draggable="true" title="Dropdown"><svg viewBox="0 0 44 28"><path d="M4 9H40V19H4Z"/><path d="M31 12.5 33.5 15.5 36 12.5"/></svg>Dropdown</button>
+      <button data-kind="checkbox" draggable="true" title="Checkbox"><svg viewBox="0 0 44 28"><path d="M5 9H15V19H5Z"/><path d="M7.5 14 9.5 16.5 13 11M19 14H38"/></svg>Checkbox</button>
+    </div>
+  </details>
+  <details>
+    <summary>Systems</summary>
+    <div class="grp">
+      <button data-kind="server" draggable="true" title="Server"><svg viewBox="0 0 44 28"><path d="M15 2H29V26H15Z"/><path d="M15 9H29M15 15H29M18 21H22"/></svg>Server</button>
+      <button data-kind="cloud" draggable="true" title="Cloud"><svg viewBox="0 0 44 28"><path d="M12 22A6 6 0 0 1 11 10A8 8 0 0 1 26 8A6 6 0 0 1 35 13A5 5 0 0 1 34 22Z"/></svg>Cloud</button>
+      <button data-kind="user" draggable="true" title="User"><svg viewBox="0 0 44 28"><circle cx="22" cy="8" r="5"/><path d="M11 26A11 10 0 0 1 33 26Z"/></svg>User</button>
+      <button data-kind="api" draggable="true" title="System / API"><svg viewBox="0 0 44 28"><path d="M12 4H40V24H12Z"/><path d="M8 8H16V12H8ZM8 16H16V20H8Z"/></svg>System / API</button>
+    </div>
+  </details>
+</nav>
+
+<section class="stage" id="stage">
+  <svg id="canvas">
+    <defs>
+      <pattern id="grid" width="37.795" height="37.795" patternUnits="userSpaceOnUse">
+        <path d="M37.795 0H0V37.795" fill="none" stroke="#E6EBEF" stroke-width="0.7"/>
+      </pattern>
+    </defs>
+    <g id="view">
+      <rect id="pageBg"/>
+      <rect id="paper"/>
+      <rect id="gridRect" fill="url(#grid)" pointer-events="none"/>
+      <g id="layer"></g>
+      <g id="overlay"></g>
+    </g>
+  </svg>
+  <textarea id="textEditor" hidden aria-label="Shape text"></textarea>
+</section>
+
+<aside class="props" id="props" aria-label="Properties">
+  <div id="propsEmpty">
+    <h2>Page</h2>
+    <p id="pageInfo"></p>
+    <label>Name<input type="text" id="pPageName" spellcheck="false" autocomplete="off"></label>
+    <label>Page size<select id="pPagePreset">
+      <option value="custom">Custom</option>
+      <option value="a1p">A1 portrait (594 &times; 841 mm)</option>
+      <option value="a1l">A1 landscape (841 &times; 594 mm)</option>
+      <option value="a2p">A2 portrait (420 &times; 594 mm)</option>
+      <option value="a2l">A2 landscape (594 &times; 420 mm)</option>
+      <option value="a3p">A3 portrait (297 &times; 420 mm)</option>
+      <option value="a3l">A3 landscape (420 &times; 297 mm)</option>
+      <option value="a4p">A4 portrait (210 &times; 297 mm)</option>
+      <option value="a4l">A4 landscape (297 &times; 210 mm)</option>
+      <option value="a5p">A5 portrait (148 &times; 210 mm)</option>
+      <option value="a5l">A5 landscape (210 &times; 148 mm)</option>
+      <option value="letterp">US Letter portrait (216 &times; 279 mm)</option>
+      <option value="letterl">US Letter landscape (279 &times; 216 mm)</option>
+    </select></label>
+    <div class="row">
+      <label>Width (mm)<input type="number" id="pPageW" min="50" max="5000" step="1"></label>
+      <label>Height (mm)<input type="number" id="pPageH" min="50" max="5000" step="1"></label>
+    </div>
+    <div class="btns one"><button id="pFitPage">Fit page to content</button></div>
+    <p class="notes">The page always grows to fit whatever is on it; set a size here (or pick a preset above) for a floor to export or print to, or use Fit page to content to shrink it to whatever is already there.</p>
+    <div class="btns one"><button id="pDeletePage" class="danger">Delete this page</button></div>
+    <h2>Getting started</h2>
+    <p>Drag a shape onto the page, or click one to drop it in the middle. To edit a shape's text, click it once to select it, then click it again, press Enter or just start typing (double-click works too). To select several shapes, drag a box around them on an empty part of the page, or Shift+click each one. Use Connect to draw lines between shapes; they stay attached when you move things.</p>
+    <p>The Text tab shows the diagram as text. Edit either side and the other follows. Save keeps the text as a .flow file. Import brings in Visio drawings and Mermaid, PlantUML, DOT or draw.io; Export makes any of them.</p>
+    <h2>Connections</h2>
+    <label>New connections<select id="pNewConn"></select></label>
+    <div class="btns one"><button id="pAddKey">Add a key to this page</button></div>
+    <h2>Shortcuts</h2>
+    <dl class="keys">
+      <dt>Click again / Enter</dt><dd>Edit the selected shape's text</dd>
+      <dt>Ctrl+S</dt><dd>Save</dd>
+      <dt>Ctrl+Shift+S</dt><dd>Save as</dd>
+      <dt>Ctrl+O</dt><dd>Open</dd>
+      <dt>Ctrl+E</dt><dd>Show or hide the text</dd>
+      <dt>Ctrl+Z / Y</dt><dd>Undo / redo</dd>
+      <dt>Ctrl+D</dt><dd>Duplicate</dd>
+      <dt>Ctrl+C / Ctrl+V</dt><dd>Copy / paste (paste again for more copies)</dd>
+      <dt>Delete</dt><dd>Remove the selection</dd>
+      <dt>Ctrl+A</dt><dd>Select everything on the page</dd>
+      <dt>Shift+click</dt><dd>Add to or remove from the selection</dd>
+      <dt>Drag on the page</dt><dd>Select everything inside the box</dd>
+      <dt>Alt+click</dt><dd>Select the object underneath</dd>
+      <dt>Space+drag</dt><dd>Pan (or middle-drag, or scroll)</dd>
+      <dt>Arrow keys</dt><dd>Nudge 1 mm (Shift for 10 mm)</dd>
+      <dt>Ctrl+scroll</dt><dd>Zoom</dd>
+      <dt>Alt+drag</dt><dd>Move without grid snap</dd>
+    </dl>
+  </div>
+  <div id="propsShape" hidden>
+    <h2 id="selTitle">Shape</h2>
+    <label id="textWrap">Text<textarea id="pText" rows="3"></textarea></label>
+    <label id="sizeWrap">Text size<select id="pSize"></select></label>
+    <p class="notes" id="editHint">Or edit it on the page: click the shape again, press Enter or start typing.</p>
+    <div class="row">
+      <label id="fillWrap">Fill<input type="color" id="pFill"></label>
+      <label id="lineWrap">Line<input type="color" id="pLine"></label>
+      <label id="textColWrap">Text<input type="color" id="pTextCol"></label>
+    </div>
+    <label id="weightWrap">Line weight
+      <select id="pWeight">
+        <option value="0.5">0.5 pt</option><option value="0.75">0.75 pt</option>
+        <option value="1">1 pt</option><option value="1.5">1.5 pt</option><option value="2">2 pt</option><option value="3">3 pt</option>
+      </select>
+    </label>
+    <div class="row" id="sizeRow">
+      <label>Width (mm)<input type="number" id="pW" min="3" step="1"></label>
+      <label>Height (mm)<input type="number" id="pH" min="3" step="1"></label>
+    </div>
+    <div id="connBox" hidden>
+      <label>Connection type<select id="pConn"></select></label>
+      <label>Route<select id="pRoute"><option value="straight">Straight</option><option value="elbow">Right-angled</option></select></label>
+      <p id="pConnMeans" class="means"></p>
+      <div class="row" id="pErRow" hidden><label>At the start<select id="pCardStart"></select></label><label>At the end<select id="pCardEnd"></select></label></div>
+      <div id="pCustom" hidden>
+        <label>Line<select id="pStyle"></select></label>
+        <div class="row"><label>Start<select id="pStart"></select></label><label>End<select id="pEnd"></select></label></div>
+      </div>
+      <label>Meaning shown in the key<input type="text" id="pMeans"></label>
+      <div class="btns one"><button id="pReverse">Reverse direction</button></div>
+    </div>
+    <p id="tableHint" hidden>Click a cell again (or double-click it) to edit its text.</p>
+    <div class="btns" id="tableBtns" hidden><button id="pAddRow">Add row</button><button id="pDelRow">Remove row</button></div>
+    <div class="btns" id="orderBtns"><button id="pFront">Bring to front</button><button id="pBack">Send to back</button></div>
+    <button id="pDelete" class="danger">Delete shape</button>
+  </div>
+</aside>
+
+<aside class="textpane" id="textPane" hidden aria-label="Diagram text">
+  <div class="tp-resize" id="tpResize" aria-hidden="true"></div>
+  <div class="tp-head">
+    <span class="tp-title">Text</span>
+    <select id="tpLang" aria-label="Language">
+      <option value="flow">Flow (live)</option><option value="mermaid">Mermaid</option><option value="plantuml">PlantUML</option>
+      <option value="activity">PlantUML activity</option><option value="dot">Graphviz DOT</option>
+    </select>
+    <span class="grow"></span>
+    <button id="tpRevert" hidden>Revert</button><button id="tpApply" class="primary" hidden>Apply</button>
+    <button id="tpPin" aria-pressed="false" title="Keep the text beside the canvas">Pin</button>
+    <button id="tpClose" title="Hide the text (Ctrl+E)">Hide</button>
+  </div>
+  <div class="code">
+    <div class="gutter-wrap"><div id="codeGutter" aria-hidden="true"></div></div>
+    <div class="code-body"><div id="codeHl" aria-hidden="true"></div><textarea id="codeText" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="Diagram text"></textarea><ul id="suggest" role="listbox" aria-label="Suggestions" hidden></ul></div>
+  </div>
+  <div class="tp-status" id="tpStatus" role="status"></div>
+</aside>
+<div id="tour" role="dialog" aria-labelledby="tourTitle" aria-describedby="tourBody" hidden>
+  <p class="count" id="tourCount"></p>
+  <h2 id="tourTitle"></h2>
+  <p id="tourBody"></p>
+  <p class="status" id="tourStatus" aria-live="polite"></p>
+  <div class="tour-btns"><button id="tourEnd">End tour</button><button id="tourNext">Next</button></div>
+</div>
+<button id="textTab" class="texttab" title="Show the diagram text (Ctrl+E)">Text</button>
+
+<nav class="tabs" id="tabs" aria-label="Pages"></nav>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="exportDlg" aria-labelledby="exportTitle">
+  <h2 id="exportTitle">Export this page</h2>
+  <div class="row2">
+    <label>Format<select id="exportFmt"></select></label>
+    <label>File name<input type="text" id="exportName" spellcheck="false" autocomplete="off"></label>
+  </div>
+  <textarea id="exportText" readonly spellcheck="false" aria-label="Exported text"></textarea>
+  <p id="exportNotes" class="notes" role="status"></p>
+  <div class="dlgBtns"><button id="exportCopy">Copy</button><button id="exportDownload">Download</button><button id="exportClose" class="primary">Close</button></div>
+</dialog>
+
+<dialog id="importDlg" aria-labelledby="importTitle">
+  <h2 id="importTitle">Import a diagram</h2>
+  <div class="row2">
+    <label>Format<select id="importFmt"><option value="auto">Detect automatically</option></select></label>
+    <label>Put it on<select id="importDest">
+      <option value="new">A new page</option>
+      <option value="replace">This page, replacing what is there</option>
+      <option value="add">This page, beside what is there</option>
+    </select></label>
+  </div>
+  <textarea id="importText" spellcheck="false" aria-label="Diagram text" placeholder="Paste Mermaid, PlantUML, Graphviz DOT or draw.io XML here, or choose a file (including a Visio .vsdx drawing)."></textarea>
+  <p id="importNotes" class="notes" role="status"></p>
+  <div class="dlgBtns">
+    <button id="importFile">Choose file…</button>
+    <input type="file" id="importInput" hidden accept=".vsdx,.vsdm,.mmd,.mermaid,.md,.puml,.plantuml,.pu,.iuml,.dot,.gv,.drawio,.xml,.txt">
+    <span class="grow"></span>
+    <button id="importCancel">Cancel</button><button id="importGo" class="primary">Import</button>
+  </div>
+</dialog>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

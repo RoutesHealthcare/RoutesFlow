@@ -1,0 +1,19 @@
+flow 1
+page "Build and deploy pipeline" direction LR
+
+# From source to the single file this editor actually runs from, plus where
+# the Playwright suite fits in. See README sections Developing and Testing.
+
+src: document "src/ - ES modules, index.html, css" @ 15,15 170x34
+buildcmd: process "npm run build (build.mjs + esbuild)" @ 225,15 170x34
+dist: document "dist/Routesflow-editor.html - single file" @ 435,15 180x34
+diskuse: terminator "Opened straight from disk, or served by any app that embeds it" @ 655,15 180x44
+testserve: process "npm run serve -> localhost:8000 (src/ modules)" @ 15,120 200x40
+testrun: process "npm test -> Playwright runs every spec against src/ and dist/" @ 255,120 200x50
+
+src -> buildcmd
+buildcmd -> dist
+dist -> diskuse
+src -> testserve
+testserve -> testrun
+dist -> testrun : "bundle"

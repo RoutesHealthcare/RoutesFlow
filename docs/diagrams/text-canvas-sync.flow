@@ -1,0 +1,31 @@
+flow 1
+page "Text pane and canvas sync" direction LR
+
+# Edits from either side go through the same document.js commit, which is why
+# undo/redo and rebuild stay consistent whichever side you worked on.
+
+usertypes: terminator "User types in the text pane" @ 15,15 130x34
+parse: process "flow/language.js - parses .flow text" @ 195,15 140x34
+intelli: process "intellisense.js - suggests the next token" @ 195,90 150x34
+model: data "Parsed model: shapes, connections, pages" @ 385,15 150x40
+syncin: process "flow/sync.js - applies text to canvas" @ 585,15 150x34
+commitdoc: process "document.js - commit, rebuild, add undo entry" @ 785,15 160x44
+rendercanvas: process "render.js - redraws the SVG canvas" @ 995,15 150x34
+
+userdrags: terminator "User drags, resizes or reroutes on canvas" @ 15,150 160x44
+pointeredit: process "pointer.js, shapes.js, connectors.js - apply the edit" @ 195,150 160x40
+syncout: process "flow/sync.js - writes canvas back to text" @ 785,150 160x40
+writetext: process "flow/language.js - serialises .flow text" @ 995,150 150x34
+textpaneupdates: terminator "Text pane (#codeText) updates" @ 1195,150 150x34
+
+usertypes -> parse
+parse -> intelli : "as you type"
+parse -> model
+model -> syncin
+syncin -> commitdoc
+commitdoc -> rendercanvas
+userdrags -> pointeredit
+pointeredit -> commitdoc : "commit"
+commitdoc -> syncout
+syncout -> writetext
+writetext -> textpaneupdates
