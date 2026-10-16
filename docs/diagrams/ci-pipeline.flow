@@ -1,0 +1,26 @@
+flow 1
+page "CI pipeline (.github/workflows/tests.yml)" direction LR
+
+# What runs on GitHub when this repo is pushed to, or a pull request is opened
+# against main. See README section Testing for what npm test itself runs.
+
+trigger: terminator "Push or pull request to main" @ 15,15 180x40
+checkout: process "actions/checkout" @ 235,15 150x34
+setup: process "actions/setup-node - Node 20, npm cache" @ 425,15 190x34
+install: process "npm ci" @ 655,15 120x34
+browsers: process "npx playwright install --with-deps chromium" @ 815,15 210x34
+runtests: process "npm test - build.mjs then Playwright, modules and bundle projects, 140 specs" @ 15,130 270x54
+report: process "Upload playwright-report as a workflow artifact" @ 325,140 220x40
+result: decision "Any step failed?" @ 585,120 150x70
+pass: terminator "Commit / PR shows a green check" @ 775,90 190x40
+fail: terminator "Commit / PR shows a red cross" @ 775,190 190x40
+
+trigger -> checkout
+checkout -> setup
+setup -> install
+install -> browsers
+browsers -> runtests
+runtests -> report : "always, even on failure"
+report -> result
+result -> pass : "no"
+result -> fail : "yes"

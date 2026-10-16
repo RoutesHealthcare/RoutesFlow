@@ -80,6 +80,12 @@ rebuild stay consistent regardless of which side you worked on.
 
 ![Text pane / canvas sync](docs/diagrams/text-canvas-sync.png)
 
+**CI pipeline** ([source](docs/diagrams/ci-pipeline.flow)) — what `.github/workflows/tests.yml` runs on every push
+or pull request to `main`: installs Chromium, runs the full Playwright suite against both the `modules` and
+`bundle` projects, and uploads the HTML report as a workflow artifact regardless of the result.
+
+![CI pipeline](docs/diagrams/ci-pipeline.png)
+
 ## Developing
 
 The source is split into an HTML page, a stylesheet and ES modules:
